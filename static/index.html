@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Insurance Policy Assistant</title>
+    <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Insurance Policy Assistant</h1>
+        </header>
+
+        <main>
+            <div class="search-container">
+                <input type="text" 
+                       id="nationalId" 
+                       placeholder="Enter National ID"
+                       class="input-field">
+                
+                <div id="policiesLoadingIndicator" class="loading-indicator hidden">
+                    <div class="spinner"></div>
+                    <p>Processing user's policies...</p>
+                </div>
+                
+                <div id="policyInfo" class="policy-info hidden">
+                    <div class="active-policies">
+                        <h3>Active Policies</h3>
+                        <div id="policiesList" class="policies-list"></div>
+                    </div>
+                    
+                    <div class="family-members">
+                        <h3>Family Members</h3>
+                        <div id="familyMembersList" class="family-list"></div>
+                    </div>
+                </div>
+
+                <div id="suggestedQuestions" class="suggested-questions hidden">
+                    <h3>Suggested Questions</h3>
+                    <div class="question-bubbles"></div>
+                </div>
+                
+                <textarea id="questionInput" 
+                          placeholder="Ask a question about your insurance policy..."
+                          class="input-field"></textarea>
+                
+                <button id="submitBtn" class="submit-btn">Ask Question</button>
+            </div>
+
+            <div class="response-container">
+                <div id="loadingIndicator" class="loading-indicator hidden">
+                    <div class="spinner"></div>
+                    <p>Processing user's policies...</p>
+                </div>
+                
+                <div id="responseContent" class="response-content">
+                    <div id="answer" class="answer-section">
+                        <!-- Answers will be inserted here -->
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+    <script>
+        console.log('Testing console before app.js loads...');
+    </script>
+    <script src="js/app.js?v=1"></script>
+</body>
+</html> 

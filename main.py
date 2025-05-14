@@ -8,12 +8,8 @@ import json
 import torch
 import pickle
 import hashlib
-import traceback
-import threading
-import functools
 import cupy as cp
 import numpy as np
-import pymupdf
 import re
 from tqdm import tqdm
 from pathlib import Path
@@ -25,45 +21,33 @@ from typing import Dict, List, Any, Optional, Iterator, Tuple, Union
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from langchain.tools import Tool
-from langchain.llms.base import LLM
-from langchain_qdrant import QdrantVectorStore 
 from langgraph import prebuilt
-from langchain.agents import AgentExecutor, create_react_agent
-from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder, PromptTemplate
-from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_huggingface.embeddings import HuggingFaceEmbeddings
-from langchain.docstore.document import Document as LangchainDocument
 from transformers import AutoModelForSequenceClassification, AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+from langchain_qdrant import QdrantVectorStore
 
 from qdrant_client import QdrantClient
 from qdrant_client.models import (
     VectorParams, Distance, OptimizersConfigDiff, 
     BinaryQuantization, BinaryQuantizationConfig,
-    SearchParams, QuantizationSearchParams,
-    PointStruct
+    SearchParams, PointStruct
 )
-from qdrant_client.models import Distance, VectorParams
-from cuvs.neighbors.ivf_flat import build, IndexParams, SearchParams, search
+from cuvs.neighbors.ivf_flat import build, IndexParams
 
 from db_utils import DatabaseConnection
 import fitz  # This is PyMuPDF
 from langchain.tools.render import render_text_description
-from typing import Annotated, Dict, List, Any, Optional, Literal
-from langgraph_supervisor import create_supervisor
-from langgraph.prebuilt import create_react_agent
-from langchain.tools import Tool
-from langchain_core.messages import BaseMessage, AIMessage, HumanMessage
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from typing import Annotated, Literal
+from langchain_core.messages import BaseMessage, AIMessage
 from typing_extensions import TypedDict
-from pydantic import BaseModel, Field
-from mlx_lm import load, generate
-import mlx.core as mx
+from mlx_lm import generate
 from langchain_core.language_models import BaseChatModel
 from langchain_core.outputs import ChatGeneration, ChatResult
 from langgraph.graph.state import StateGraph
 from chonkie import TokenChunker, SemanticChunker, RecursiveChunker
 from chonkie.refinery.overlap import OverlapRefinery
-from chonkie.types import RecursiveRules, RecursiveLevel, RecursiveChunk
+from chonkie.types import RecursiveRules, RecursiveLevel
 
 # Create indices directory if it doesn't exist
 INDICES_DIR = Path("indices")
@@ -72,7 +56,7 @@ INDICES_DIR.mkdir(exist_ok=True)
 # Initialize Qdrant client
 QDRANT_PATH = INDICES_DIR / "qdrant_storage"
 COLLECTION_NAME = "insurance_docs"
-VECTOR_SIZE = 768  # Size for 'hkunlp/instructor-xl' embeddings
+VECTOR_SIZE = 768  
 
 class State(TypedDict):
     messages: Annotated[List[BaseMessage], "Chat message history"]
@@ -1007,7 +991,7 @@ class DocumentQASystem:
                 source_documents=sources
             )
             
-            return result.json(indent=2)
+            return result.model_dump_json(indent=2)
             
         except Exception as e:
             print(f"Error parsing coverage info: {str(e)}")
@@ -1019,7 +1003,7 @@ class DocumentQASystem:
                 amounts=[],
                 percentages=[],
                 source_documents=[]
-            ).json(indent=2)
+            ).model_dump_json(indent=2)
 
     def _search_policy_info(self, query: str) -> str:
         """Search policy documents"""
@@ -1484,14 +1468,14 @@ Please give a short succinct context to situate this chunk within the overall do
         """Generate text with markdown formatting instructions"""
         try:
             # Add markdown formatting instructions to system prompt
-            system_prompt = """You are an insurance expert. Format your responses in markdown:
+            system_prompt = """You are an insurance expert. Format your responses using markdown:
             
             1. Use ### for section headers
-            2. Use * for list items 
-            3. Use **bold** for emphasis
+            2. Use * at the start of a line (with a space after) to create bullet points
+            3. Use **bold** for emphasis and important information
             4. Use proper spacing between sections
-            5. Format amounts as `QR XXX`
-            6. Format percentages as `XX%`
+            5. Format amounts as "**QR X,XXX**"
+            6. Format percentages as "**XX%**"
             7. Start response with "**Answer:**"
             8. Use horizontal rules (---) between major sections
             
@@ -1922,10 +1906,12 @@ Please give a short succinct context to situate this chunk within the overall do
                     context_parts.append(chunk.content.strip())
 
             # Create the system and user messages
-            system_message = """<|START_OF_TURN_TOKEN|><|SYSTEM_TOKEN|>You are an insurance expert. Analyze coverage details.
-- Be direct and specific
-- Use bullet points
-- Format amounts as "QR X,XXX"
+            system_message = """<|START_OF_TURN_TOKEN|><|SYSTEM_TOKEN|>You are an insurance expert. Format your response using markdown:
+- Use **bold** for important information like amounts and percentages
+- Use * at the start of a line (with a space after) to create bullet points
+- Format each bullet point on a new line
+- Format amounts as "**QR X,XXX**"
+- Format percentages as "**XX%**"
 - Do not include source text
 - Only state information found in the policy"""
 
@@ -1934,10 +1920,10 @@ Please give a short succinct context to situate this chunk within the overall do
 {"\n".join(context_parts)}
 
 Format your response:
-- Start with a direct yes/no answer about coverage
-- List the specific coverage details and limits
-- State any applicable coinsurance or deductibles
-- List any restrictions or limitations"""
+* Start with a direct yes/no answer about coverage
+* List the specific coverage details and limits
+* State any applicable coinsurance or deductibles
+* List any restrictions or limitations"""
 
             messages = [
                 {

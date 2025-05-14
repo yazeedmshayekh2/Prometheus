@@ -305,7 +305,8 @@ class InsuranceAssistant {
     markdownToHtml(markdown) {
         if (!markdown) return '';
         
-        return markdown
+        // Process the markdown in multiple steps
+        let html = markdown
             // Headers
             .replace(/^### (.*?)$/gm, '<h3>$1</h3>')
             .replace(/^## (.*?)$/gm, '<h2>$1</h2>')
@@ -313,15 +314,14 @@ class InsuranceAssistant {
             // Bold text (handle both ** and __ syntax)
             .replace(/(\*\*|__)(.*?)\1/g, '<strong>$2</strong>')
             
-            // Lists (handle both unordered and ordered)
-            .replace(/^\s*[-•]\s+(.+)$/gm, '<li>$1</li>')
-            .replace(/^\s*\d+\.\s+(.+)$/gm, '<li>$1</li>')
+            // Horizontal rules
+            .replace(/^---+$/gm, '<hr>')
             
-            // Wrap lists in appropriate tags
-            .replace(/(<li>.*?<\/li>)\n?/gs, '<ul>$1</ul>')
-            
-            // Sections with colons
-            .replace(/^([A-Za-z\s&]+):\s*$/gm, '<h3>$1:</h3>')
+            // Lists - first convert all forms of bullets to a common format
+            .replace(/^\s*\* (.+)$/gm, '<li>$1</li>') // Asterisk bullets
+            .replace(/^\s*- (.+)$/gm, '<li>$1</li>')  // Hyphen bullets 
+            .replace(/^\s*• (.+)$/gm, '<li>$1</li>')  // Bullet character
+            .replace(/^\s*\d+\.\s+(.+)$/gm, '<li>$1</li>') // Numbered lists
             
             // Currency formatting
             .replace(/QR\s*(\d{1,3}(?:,\d{3})*(?:\.\d+)?)/g, '<strong>QR $1</strong>')
@@ -332,19 +332,50 @@ class InsuranceAssistant {
             // Paragraphs
             .replace(/\n{2,}/g, '</p><p>')
             .replace(/^(.+?)$/gm, function(match) {
-                if (!/^<[h|p|ul|li]/.test(match)) {
+                if (!/^<[h|p|ul|li|hr]/.test(match)) {
                     return '<p>' + match + '</p>';
                 }
                 return match;
-            })
+            });
             
+        // Properly wrap lists in <ul> tags - this is more complex and needs a separate step
+        // Find consecutive <li> elements and wrap them in <ul> tags
+        let inList = false;
+        let lines = html.split('\n');
+        let result = [];
+        
+        for (let i = 0; i < lines.length; i++) {
+            let line = lines[i];
+            
+            if (line.startsWith('<li>')) {
+                if (!inList) {
+                    result.push('<ul>');
+                    inList = true;
+                }
+                result.push(line);
+            } else {
+                if (inList) {
+                    result.push('</ul>');
+                    inList = false;
+                }
+                result.push(line);
+            }
+        }
+        
+        if (inList) {
+            result.push('</ul>');
+        }
+        
+        html = result.join('\n')
             // Clean up empty paragraphs and fix nested paragraphs
             .replace(/<p>\s*<\/p>/g, '')
-            .replace(/<p>(\s*<(?:ul|li|h[2-3])>)/g, '$1')
-            .replace(/(<\/(?:ul|li|h[2-3])>\s*)<\/p>/g, '$1')
+            .replace(/<p>(\s*<(?:ul|li|h[2-3]|hr)>)/g, '$1')
+            .replace(/(<\/(?:ul|li|h[2-3]|hr)>\s*)<\/p>/g, '$1')
             
             // Fix line breaks
             .replace(/\n/g, '<br>');
+            
+        return html;
     }
 
     escapeHtml(text) {

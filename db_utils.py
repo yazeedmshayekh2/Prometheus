@@ -1,9 +1,8 @@
 import pyodbc
-from typing import List, Dict, Any
+from typing import Dict, Any
 import pandas as pd
 import urllib3
 import requests
-from pathlib import Path
 
 # Disable SSL warnings for PDF downloads
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)

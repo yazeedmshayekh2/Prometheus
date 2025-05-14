@@ -1,4 +1,3 @@
-import os
 import urllib3
 import requests
 import pyodbc

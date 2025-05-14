@@ -3,10 +3,7 @@ Script to reindex all documents with correct source filenames.
 This script should be run when you need to rebuild the indices with proper metadata.
 """
 
-import os
 import sys
-import io
-from pathlib import Path
 from main import DocumentQASystem
 from db_utils import DatabaseConnection
 import argparse

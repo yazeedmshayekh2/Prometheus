@@ -652,7 +652,6 @@ class DocumentQASystem:
             
             # Initialize RecursiveChunker with rules
             self.recursive_chunker = RecursiveChunker(
-                tokenizer=self.llm.tokenizer,
                 chunk_size=512,
                 rules=recursive_rules,
                 min_characters_per_chunk=50
@@ -701,10 +700,10 @@ class DocumentQASystem:
         """Initialize cross-encoder reranker"""
         try:
             self.reranker = AutoModelForSequenceClassification.from_pretrained(
-                "cross-encoder/ms-marco-MiniLM-L-12-v2"
+                "cross-encoder/ms-marco-MiniLM-L-6-v2"
             ).to(self.device)
             self.rerank_tokenizer = AutoTokenizer.from_pretrained(
-                "cross-encoder/ms-marco-MiniLM-L-12-v2"
+                "cross-encoder/ms-marco-MiniLM-L-6-v2"
             )
             print("Cross-encoder reranker initialized")
         except Exception as e:
@@ -1065,20 +1064,17 @@ class DocumentQASystem:
                 return "I apologize, but I couldn't find specific information about that in your policy documents. Could you please rephrase your question?"
             
             # Generate response with explicit formatting instructions
-            retry_prompt = f"""Based on these insurance policy details, generate a clear and precise response.
-            You must format the response exactly as shown:
+            retry_prompt = f"""Based on these insurance policy details, provide a direct and concise answer.
 
             Policy Information:
             {search_results}
 
-            Format requirements:
-            1. Start with a clear direct answer
-            2. Use bullet points for lists
-            3. Format amounts as **QR X,XXX**
-            4. Format percentages as **XX%**
-            5. Include source references
-
-            Response:"""
+            Be brief and to the point:
+            1. Answer only what was asked
+            2. Start with a direct answer
+            3. Use bullet points only when necessary
+            4. Format amounts as **QR X,XXX**
+            5. Format percentages as **XX%**"""
 
             response = self._generate_text(retry_prompt, max_tokens=300, temperature=0.3)
             return response.strip()
@@ -1468,18 +1464,15 @@ Please give a short succinct context to situate this chunk within the overall do
         """Generate text with markdown formatting instructions"""
         try:
             # Add markdown formatting instructions to system prompt
-            system_prompt = """You are an insurance expert. Format your responses using markdown:
+            system_prompt = """You are an insurance expert. Be direct and concise:
             
-            1. Use ### for section headers
-            2. Use * at the start of a line (with a space after) to create bullet points
-            3. Use **bold** for emphasis and important information
-            4. Use proper spacing between sections
+            1. Answer only what was asked - no additional explanations
+            2. Be brief and to the point
+            3. Start with a direct answer when applicable
+            4. Use bullet points for lists when needed
             5. Format amounts as "**QR X,XXX**"
             6. Format percentages as "**XX%**"
-            7. Start response with "**Answer:**"
-            8. Use horizontal rules (---) between major sections
-            
-            Analyze the provided policy information and respond with accurate, well-formatted details."""
+            7. Only include information found in the policy documents"""
 
             chat_messages = [
                 {
@@ -1505,7 +1498,7 @@ Please give a short succinct context to situate this chunk within the overall do
                     self.llm.tokenizer,
                     prompt=prompt,
                     max_tokens=max_tokens,
-                    temperature=temperature,
+                    sampling_temperature=temperature,  # Changed from temperature to sampling_temperature
                     verbose=False,
                     device=device  # Use detected device
                 )
@@ -1518,7 +1511,7 @@ Please give a short succinct context to situate this chunk within the overall do
                         self.llm.tokenizer,
                         prompt=prompt,
                         max_tokens=max_tokens,
-                        temperature=temperature,
+                        sampling_temperature=temperature,  # Changed from temperature to sampling_temperature
                         verbose=False,
                         device="cpu"
                     )
@@ -1906,24 +1899,18 @@ Please give a short succinct context to situate this chunk within the overall do
                     context_parts.append(chunk.content.strip())
 
             # Create the system and user messages
-            system_message = """<|START_OF_TURN_TOKEN|><|SYSTEM_TOKEN|>You are an insurance expert. Format your response using markdown:
-- Use **bold** for important information like amounts and percentages
-- Use * at the start of a line (with a space after) to create bullet points
-- Format each bullet point on a new line
-- Format amounts as "**QR X,XXX**"
-- Format percentages as "**XX%**"
-- Do not include source text
+            system_message = """<|START_OF_TURN_TOKEN|><|SYSTEM_TOKEN|>You are an insurance expert. Be direct, concise, and straightforward:
+- Answer only what was asked, without unnecessary explanations
+- Use **bold** for key information like amounts and percentages
+- Start with a direct yes/no/partial answer when applicable
+- Format amounts as "**QR X,XXX**" and percentages as "**XX%**"
+- Use bullet points for lists
+- Keep responses brief and to the point
 - Only state information found in the policy"""
 
-            user_message = f"""<|START_OF_TURN_TOKEN|><|USER_TOKEN|>Based on the policy information below, answer: {question}
-
-{"\n".join(context_parts)}
-
-Format your response:
-* Start with a direct yes/no answer about coverage
-* List the specific coverage details and limits
-* State any applicable coinsurance or deductibles
-* List any restrictions or limitations"""
+            start_token = "<|START_OF_TURN_TOKEN|>"
+            user_token = "<|USER_TOKEN|>"
+            user_message = f"{start_token}{user_token}Based on the policy information below, answer: {question}\n\n{"\n".join(context_parts)}"
 
             messages = [
                 {
@@ -1989,7 +1976,7 @@ Format your response:
             self.llm = C4AIModelWrapper()
             
             # Reranker components
-            reranker_model = "cross-encoder/ms-marco-MiniLM-L-12-v2"
+            reranker_model = "cross-encoder/ms-marco-MiniLM-L-6-v2"
             self.reranker = AutoModelForSequenceClassification.from_pretrained(reranker_model).to(self.device)
             self.rerank_tokenizer = AutoTokenizer.from_pretrained(reranker_model)
             

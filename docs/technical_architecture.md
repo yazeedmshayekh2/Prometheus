@@ -335,7 +335,7 @@ graph TD
     end
     
     subgraph "Cross-Encoder Model"
-        MiniLM[MiniLM-L-12-v2]
+        MiniLM[MiniLM-L-6-v2]
         RerankerWeights[Reranker Weights]
     end
     

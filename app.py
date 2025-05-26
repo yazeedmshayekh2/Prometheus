@@ -10,7 +10,6 @@ from db_utils import DatabaseConnection
 from main import DocumentQASystem
 import argparse
 import ssl
-import os
 
 # Add ngrok import
 try:
@@ -306,52 +305,40 @@ def generate_self_signed_cert(cert_file="ssl/cert.pem", key_file="ssl/key.pem"):
 if __name__ == "__main__":
     import uvicorn
     
-    # Get port from environment variable (for cloud deployment) or use default
-    port = int(os.environ.get("PORT", 5000))
-    host = os.environ.get("HOST", "0.0.0.0")
-    
-    # Parse command line arguments (for local development)
+    # Parse command line arguments
     parser = argparse.ArgumentParser(description="Run the FastAPI app with optional ngrok support and SSL")
     parser.add_argument("--ngrok", action="store_true", help="Enable ngrok tunnel")
     parser.add_argument("--ngrok-hostname", type=str, help="Custom hostname for ngrok (requires paid plan)")
-    parser.add_argument("--port", type=int, default=port, help=f"Port to run the app on (default: {port})")
-    parser.add_argument("--host", type=str, default=host, help=f"Host to run the app on (default: {host})")
+    parser.add_argument("--port", type=int, default=5000, help="Port to run the app on (default: 5000)")
+    parser.add_argument("--host", type=str, default="0.0.0.0", help="Host to run the app on (default: 0.0.0.0)")
     parser.add_argument("--ssl", action="store_true", help="Enable SSL with self-signed certificate")
     parser.add_argument("--cert", type=str, default="ssl/cert.pem", help="Path to SSL certificate")
     parser.add_argument("--key", type=str, default="ssl/key.pem", help="Path to SSL key")
     args = parser.parse_args()
     
-    # For cloud deployment, skip SSL and ngrok setup
-    is_cloud_deployment = os.environ.get("RAILWAY_ENVIRONMENT") or os.environ.get("RENDER") or os.environ.get("FLY_APP_NAME")
+    # Setup SSL if requested
+    ssl_context = None
+    if args.ssl:
+        cert_file, key_file = generate_self_signed_cert(args.cert, args.key)
+        if cert_file and key_file:
+            try:
+                ssl_context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
+                ssl_context.load_cert_chain(cert_file, key_file)
+                print(f"SSL enabled with certificate: {cert_file}")
+            except Exception as e:
+                print(f"Error setting up SSL: {e}")
+                ssl_context = None
     
-    if is_cloud_deployment:
-        print(f"Running in cloud environment on {args.host}:{args.port}")
-        uvicorn.run(app, host=args.host, port=args.port)
+    # Setup ngrok if requested
+    ngrok_tunnel = None
+    if args.ngrok:
+        ngrok_tunnel = setup_ngrok(args.port, args.ngrok_hostname)
+        print("Note: ngrok provides secure HTTPS connections automatically")
+    
+    # Run the app
+    if ssl_context:
+        # Run with SSL
+        uvicorn.run(app, host=args.host, port=args.port, ssl_keyfile=args.key, ssl_certfile=args.cert)
     else:
-        # Local development setup
-        # Setup SSL if requested
-        ssl_context = None
-        if args.ssl:
-            cert_file, key_file = generate_self_signed_cert(args.cert, args.key)
-            if cert_file and key_file:
-                try:
-                    ssl_context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
-                    ssl_context.load_cert_chain(cert_file, key_file)
-                    print(f"SSL enabled with certificate: {cert_file}")
-                except Exception as e:
-                    print(f"Error setting up SSL: {e}")
-                    ssl_context = None
-        
-        # Setup ngrok if requested
-        ngrok_tunnel = None
-        if args.ngrok:
-            ngrok_tunnel = setup_ngrok(args.port, args.ngrok_hostname)
-            print("Note: ngrok provides secure HTTPS connections automatically")
-        
-        # Run the app
-        if ssl_context:
-            # Run with SSL
-            uvicorn.run(app, host=args.host, port=args.port, ssl_keyfile=args.key, ssl_certfile=args.cert)
-        else:
-            # Run without SSL
-            uvicorn.run(app, host=args.host, port=args.port)
+        # Run without SSL
+        uvicorn.run(app, host=args.host, port=args.port)

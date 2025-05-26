@@ -12,6 +12,16 @@ class InsuranceAssistant {
         this.responseContent = document.getElementById('responseContent');
         this.answerSection = document.getElementById('answer');
         this.suggestedQuestions = document.getElementById('suggestedQuestions');
+        
+        // PDF viewer elements
+        this.pdfViewer = document.getElementById('pdfViewer');
+        this.pdfFrame = document.getElementById('pdfFrame');
+        this.pdfCompany = document.getElementById('pdfCompany');
+        this.pdfPlaceholder = document.getElementById('pdfPlaceholder');
+        
+        // Track PDF state
+        this.isPdfLoaded = false;
+        this.currentPdfLink = null;
 
         console.log('DOM Elements found:', {
             nationalIdInput: !!this.nationalIdInput,
@@ -20,7 +30,11 @@ class InsuranceAssistant {
             loadingIndicator: !!this.loadingIndicator,
             responseContent: !!this.responseContent,
             answerSection: !!this.answerSection,
-            suggestedQuestions: !!this.suggestedQuestions
+            suggestedQuestions: !!this.suggestedQuestions,
+            pdfViewer: !!this.pdfViewer,
+            pdfFrame: !!this.pdfFrame,
+            pdfCompany: !!this.pdfCompany,
+            pdfPlaceholder: !!this.pdfPlaceholder
         });
 
         this.setupEventListeners();
@@ -71,14 +85,24 @@ class InsuranceAssistant {
                 const suggestions = await this.getSuggestedQuestions(nationalId);
                 console.log('Received suggestions:', suggestions); // Debug log
                 this.displaySuggestedQuestions(suggestions);
+                
+                // Display PDF if available in suggestions response
+                if (suggestions.pdf_info && suggestions.pdf_info.pdf_link) {
+                    await this.displayPDF(suggestions.pdf_info);
+                } else {
+                    this.hidePDF();
+                }
+                
                 this.showLoading(false);
             } catch (error) {
                 console.error('Error getting suggestions:', error);
                 this.showLoading(false);
                 this.hideSuggestedQuestions();
+                this.hidePDF();
             }
         } else {
             this.hideSuggestedQuestions();
+            this.hidePDF();
         }
     }
 
@@ -263,6 +287,81 @@ class InsuranceAssistant {
                 console.error('Error setting no-answer HTML:', error);
             }
         }
+
+        // Handle PDF display - only load if not already loaded or if it's a different PDF
+        if (response.pdf_info && response.pdf_info.pdf_link) {
+            if (!this.isPdfLoaded || this.currentPdfLink !== response.pdf_info.pdf_link) {
+                this.displayPDF(response.pdf_info);
+            }
+        } else if (!this.isPdfLoaded) {
+            this.hidePDF();
+        }
+    }
+
+    async displayPDF(pdfInfo) {
+        if (!this.pdfViewer || !this.pdfFrame || !this.pdfCompany) {
+            console.error('PDF viewer elements not found');
+            return;
+        }
+
+        try {
+            // Update company name
+            this.pdfCompany.textContent = pdfInfo.company_name || 'Unknown Company';
+
+            // Create a blob URL for the PDF
+            const response = await fetch('/api/pdf', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ pdf_link: pdfInfo.pdf_link })
+            });
+
+            if (!response.ok) {
+                throw new Error(`Failed to fetch PDF: ${response.status}`);
+            }
+
+            const pdfBlob = await response.blob();
+            const pdfUrl = URL.createObjectURL(pdfBlob);
+
+            // Set the PDF in the iframe
+            this.pdfFrame.src = pdfUrl;
+
+            // Hide placeholder and show PDF viewer
+            if (this.pdfPlaceholder) {
+                this.pdfPlaceholder.classList.add('hidden');
+            }
+            this.pdfViewer.classList.remove('hidden');
+
+            // Clean up the blob URL after a delay to ensure it loads
+            setTimeout(() => {
+                URL.revokeObjectURL(pdfUrl);
+            }, 5000);
+
+            // Update PDF state
+            this.isPdfLoaded = true;
+            this.currentPdfLink = pdfInfo.pdf_link;
+
+        } catch (error) {
+            console.error('Error displaying PDF:', error);
+            this.hidePDF();
+        }
+    }
+
+    hidePDF() {
+        if (this.pdfViewer) {
+            this.pdfViewer.classList.add('hidden');
+        }
+        if (this.pdfFrame) {
+            this.pdfFrame.src = '';
+        }
+        if (this.pdfPlaceholder) {
+            this.pdfPlaceholder.classList.remove('hidden');
+        }
+        
+        // Reset PDF state
+        this.isPdfLoaded = false;
+        this.currentPdfLink = null;
     }
 
     showError(message) {

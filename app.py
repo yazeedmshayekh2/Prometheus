@@ -1,6 +1,7 @@
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
 from pydantic import BaseModel
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -81,6 +82,26 @@ async def query_endpoint(request: QueryRequest):
         
         if not response:
             raise HTTPException(status_code=500, detail="No response generated")
+        
+        # Get policy details to include PDF information
+        pdf_info = None
+        if request.national_id:
+            try:
+                policy_details = qa_system.lookup_policy_details(request.national_id)
+                if policy_details and "primary_member" in policy_details:
+                    member = policy_details["primary_member"]
+                    if member.get("policies"):
+                        # Get the first policy with a PDF link for embedding
+                        for policy in member["policies"]:
+                            if policy.get('pdf_link'):
+                                pdf_info = {
+                                    "pdf_link": policy['pdf_link'],
+                                    "company_name": policy.get('company_name', 'Unknown'),
+                                    "policy_number": policy.get('policy_number', 'Unknown')
+                                }
+                                break
+            except Exception as e:
+                print(f"Error getting PDF info: {str(e)}")
             
         formatted_response = {
             "answer": response.answer,
@@ -91,13 +112,44 @@ async def query_endpoint(request: QueryRequest):
                     "score": float(src.score)
                 }
                 for src in (response.sources or [])
-            ]
+            ],
+            "pdf_info": pdf_info
         }
         
         return formatted_response
         
     except Exception as e:
         print(f"Error processing query: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Add PDF serving endpoint
+class PDFRequest(BaseModel):
+    pdf_link: str
+
+@app.post("/api/pdf")
+async def get_pdf(request: PDFRequest):
+    if not qa_system:
+        raise HTTPException(status_code=500, detail="System not initialized")
+        
+    try:
+        # Download PDF content
+        pdf_content = qa_system.db.download_policy_pdf(request.pdf_link)
+        
+        if not pdf_content:
+            raise HTTPException(status_code=404, detail="PDF not found or could not be downloaded")
+        
+        # Return PDF content with appropriate headers
+        return Response(
+            content=pdf_content,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f"inline; filename={request.pdf_link.split('/')[-1]}",
+                "Cache-Control": "public, max-age=3600"
+            }
+        )
+        
+    except Exception as e:
+        print(f"Error serving PDF: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 # Add this new route to your existing FastAPI app
@@ -124,6 +176,7 @@ async def get_suggestions(request: SuggestionsRequest):
         
         # Extract key topics and generate relevant questions
         suggested_questions = []
+        pdf_info = None
         
         if policy_details and "primary_member" in policy_details:
             member = policy_details["primary_member"]
@@ -131,6 +184,14 @@ async def get_suggestions(request: SuggestionsRequest):
                 print(f"Found {len(member['policies'])} policies")  # Debug log
                 for policy in member["policies"]:
                     if policy.get('pdf_link'):
+                        # Get PDF info from the first policy with a PDF link
+                        if not pdf_info:
+                            pdf_info = {
+                                "pdf_link": policy['pdf_link'],
+                                "company_name": policy.get('company_name', 'Unknown'),
+                                "policy_number": policy.get('policy_number', 'Unknown')
+                            }
+                        
                         print(f"Generating questions for policy: {policy.get('company_name', 'Unknown')}")  # Debug log
                         doc_questions = qa_system.generate_questions_from_document(
                             policy.get('pdf_link'),
@@ -163,7 +224,8 @@ async def get_suggestions(request: SuggestionsRequest):
         print(f"Returning {len(final_questions)} unique questions")  # Debug log
         
         return {
-            "questions": final_questions
+            "questions": final_questions,
+            "pdf_info": pdf_info
         }
         
     except Exception as e:

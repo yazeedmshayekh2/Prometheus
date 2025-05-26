@@ -13,50 +13,72 @@
         </header>
 
         <main>
-            <div class="search-container">
-                <input type="text" 
-                       id="nationalId" 
-                       placeholder="Enter National ID"
-                       class="input-field">
-                
-                <div id="policiesLoadingIndicator" class="loading-indicator hidden">
-                    <div class="spinner"></div>
-                    <p>Processing user's policies...</p>
+            <div class="main-layout">
+                <div class="left-section">
+                    <div class="search-container">
+                        <input type="text" 
+                               id="nationalId" 
+                               placeholder="Enter National ID"
+                               class="input-field">
+                        
+                        <div id="policiesLoadingIndicator" class="loading-indicator hidden">
+                            <div class="spinner"></div>
+                            <p>Processing user's policies...</p>
+                        </div>
+                        
+                        <div id="policyInfo" class="policy-info hidden">
+                            <div class="active-policies">
+                                <h3>Active Policies</h3>
+                                <div id="policiesList" class="policies-list"></div>
+                            </div>
+                            
+                            <div class="family-members">
+                                <h3>Family Members</h3>
+                                <div id="familyMembersList" class="family-list"></div>
+                            </div>
+                        </div>
+
+                        <div id="suggestedQuestions" class="suggested-questions hidden">
+                            <h3>Suggested Questions</h3>
+                            <div class="question-bubbles"></div>
+                        </div>
+                        
+                        <textarea id="questionInput" 
+                                  placeholder="Ask a question about your insurance policy..."
+                                  class="input-field"></textarea>
+                        
+                        <button id="submitBtn" class="submit-btn">Ask Question</button>
+                    </div>
+
+                    <div class="response-container">
+                        <div id="loadingIndicator" class="loading-indicator hidden">
+                            <div class="spinner"></div>
+                            <p>Processing user's policies...</p>
+                        </div>
+                        
+                        <div id="responseContent" class="response-content">
+                            <div id="answer" class="answer-section">
+                                <!-- Answers will be inserted here -->
+                            </div>
+                        </div>
+                    </div>
                 </div>
                 
-                <div id="policyInfo" class="policy-info hidden">
-                    <div class="active-policies">
-                        <h3>Active Policies</h3>
-                        <div id="policiesList" class="policies-list"></div>
+                <div class="right-section">
+                    <div id="pdfPlaceholder" class="pdf-placeholder">
+                        <div class="pdf-placeholder-icon">📄</div>
+                        <div class="pdf-placeholder-text">
+                            <strong>Policy Document</strong><br>
+                            Enter your National ID to view your policy document
+                        </div>
                     </div>
                     
-                    <div class="family-members">
-                        <h3>Family Members</h3>
-                        <div id="familyMembersList" class="family-list"></div>
-                    </div>
-                </div>
-
-                <div id="suggestedQuestions" class="suggested-questions hidden">
-                    <h3>Suggested Questions</h3>
-                    <div class="question-bubbles"></div>
-                </div>
-                
-                <textarea id="questionInput" 
-                          placeholder="Ask a question about your insurance policy..."
-                          class="input-field"></textarea>
-                
-                <button id="submitBtn" class="submit-btn">Ask Question</button>
-            </div>
-
-            <div class="response-container">
-                <div id="loadingIndicator" class="loading-indicator hidden">
-                    <div class="spinner"></div>
-                    <p>Processing user's policies...</p>
-                </div>
-                
-                <div id="responseContent" class="response-content">
-                    <div id="answer" class="answer-section">
-                        <!-- Answers will be inserted here -->
+                    <div id="pdfViewer" class="pdf-viewer-section hidden">
+                        <div class="pdf-header">
+                            <h3>Policy Document</h3>
+                            <span id="pdfCompany" class="pdf-company"></span>
+                        </div>
+                        <iframe id="pdfFrame" class="pdf-frame" title="Policy Document"></iframe>
                     </div>
                 </div>
             </div>

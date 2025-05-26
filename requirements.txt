@@ -1,38 +1,16 @@
-# Web Framework
 fastapi
-uvicorn
+uvicorn[standard]
 python-multipart
-pyngrok  # For ngrok integration
-
-# ML/AI
+pydantic
+requests
+pandas
+python-dotenv
+qdrant-client
+sentence-transformers
 torch
 transformers
-sentence-transformers
-langchain
-langgraph
-
-# Vector Search
-qdrant-client
+pymupdf
 rank-bm25
-
-# PDF Processing
-PyMuPDF
-
-# Utilities
 numpy
-tqdm
-python-dotenv
-pydantic
-cupy-cuda12x
-
-pyodbc
-pandas
-langchain_huggingface
-langchain_qdrant
-mlx_lm
-chonkie
-bitsandbytes
-accelerate
-chonkie[model2vec]
-autoawq
-hf_xet
+scikit-learn
+nltk

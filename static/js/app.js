@@ -155,6 +155,11 @@ class InsuranceAssistant {
             if (this.answerSection) {
                 this.answerSection.innerHTML = '';
             }
+            // Hide family information section
+            const familyInfoSection = document.getElementById('familyInfoSection');
+            if (familyInfoSection) {
+                familyInfoSection.classList.add('hidden');
+            }
         }
         
         if (length === 0) {
@@ -462,10 +467,11 @@ class InsuranceAssistant {
             console.log(`Creating bubble for question ${index + 1}:`, question); // Debug log
             const bubble = document.createElement('div');
             bubble.className = 'question-bubble';
-            // Remove [], the "Question #N:" prefix, and any other bold markdown for display
+            // Remove [], the "Question #N:" prefix, any other bold markdown, and "### " prefixes for display
             bubble.textContent = question.replace(/[\[\]]/g, '')
                                        .replace(/\*\*Question\s*(#\d+|\d+):\*\*\s*/, '')
-                                       .replace(/\*\*(.*?)\*\*/g, '$1');
+                                       .replace(/\*\*(.*?)\*\*/g, '$1')
+                                       .replace(/^#+\s*/, ''); // Remove one or more "#" followed by space
             bubble.addEventListener('click', (e) => {
                 e.preventDefault();
                 console.log(`Clicked question ${index + 1}:`, question); // Debug log
@@ -477,9 +483,10 @@ class InsuranceAssistant {
                 
                 if (this.questionInput) {
                     // MODIFIED: Apply full cleaning to the question text for the input field
-                    const cleanedQuestionForInput = question.replace(/[\[\]]/g, '')
+                    const cleanedQuestionForInput = question.replace(/[\\[\\]]/g, '')
                                                          .replace(/\*\*Question\s*(#\d+|\d+):\*\*\s*/, '')
-                                                         .replace(/\*\*(.*?)\*\*/g, '$1');
+                                                         .replace(/\*\*(.*?)\*\*/g, '$1')
+                                                         .replace(/^#+\s*/, ''); // Remove one or more "#" followed by space
                     this.questionInput.value = cleanedQuestionForInput;
                     // MODIFIED: Update button state to enable it if appropriate
                     this.updateSubmitButtonState(); 
@@ -546,15 +553,24 @@ class InsuranceAssistant {
                 })
             });
 
+            const responseData = await response.json();
+
             if (!response.ok) {
-                const errorData = await response.json().catch(() => null);
-                throw new Error(errorData?.detail || `HTTP error! status: ${response.status}`);
+                // Handle specific content filtering errors from the API
+                if (responseData.detail && typeof responseData.detail === 'object' && responseData.detail.error === 'inappropriate_content_blocked') {
+                    this.showContentWarning(responseData.detail.message, responseData.detail.suggestion, true /* isBlocked */);
+                    return null; // Blocked content, stop further processing
+                }
+                // For other errors, throw a generic message or the specific detail
+                throw new Error(responseData.detail?.message || responseData.detail || `HTTP error! status: ${response.status}`);
             }
 
-            return await response.json();
+            return responseData;
         } catch (error) {
             console.error('API Error:', error);
-            throw error;
+            // If it's a manually thrown error with a message, use that, otherwise generic
+            this.showError(error.message || 'Failed to get a response from the server.');
+            return null; // Ensure we return null on error to stop processing
         }
     }
 
@@ -565,15 +581,31 @@ class InsuranceAssistant {
     }
 
     displayResponse(response) {
+        if (!response) return; // If queryAPI returned null (e.g., content blocked), do nothing
+
         if (!this.answerSection) {
             console.error('Answer section element not found in displayResponse');
             return;
         }
 
+        let htmlToDisplay = '';
+
+        // Display content warning if present (for sanitized content)
+        if (response.content_warning) {
+            htmlToDisplay += `
+                <div class="content-warning sanitized">
+                    <div class="warning-icon">⚠️</div>
+                    <div class="warning-text">
+                        <p class="warning-message">${this.escapeHtml(response.content_warning)}</p>
+                    </div>
+                </div>
+            `;
+        }
+
         // Display the answer with improved markdown formatting
         if (response.answer) {
             try {
-                this.answerSection.innerHTML = `
+                htmlToDisplay += `
                     <div class="markdown">
                         ${this.markdownToHtml(response.answer)}
                     </div>
@@ -581,13 +613,11 @@ class InsuranceAssistant {
             } catch (error) {
                 console.error('Error setting answer HTML:', error);
             }
-        } else {
-            try {
-                this.answerSection.innerHTML = '<div class="error-message">No answer received</div>';
-            } catch (error) {
-                console.error('Error setting no-answer HTML:', error);
-            }
+        } else if (!response.content_warning) { // Only show "No answer" if no other warning is up
+            htmlToDisplay += '<div class="error-message">No answer received</div>';
         }
+        
+        this.answerSection.innerHTML = htmlToDisplay;
 
         // Handle PDF display - only load if not already loaded or if it's a different PDF
         if (response.pdf_info && response.pdf_info.pdf_link) {
@@ -1219,6 +1249,27 @@ class InsuranceAssistant {
         // Reset PDF state
         this.isPdfLoaded = false;
         this.currentPdfLink = null;
+    }
+
+    // New method to display content warnings
+    showContentWarning(message, suggestion, isBlocked = false) {
+        if (!this.answerSection) {
+            this.createResponseStructure(); // Ensure response area exists
+        }
+        
+        let warningHtml = `
+            <div class="content-warning ${isBlocked ? 'blocked' : 'sanitized'}">
+                <div class="warning-icon">${isBlocked ? '🚫' : '⚠️'}</div>
+                <div class="warning-text">
+                    <p class="warning-message">${this.escapeHtml(message)}</p>
+        `;
+        if (suggestion) {
+            warningHtml += `<p class="warning-suggestion">${this.escapeHtml(suggestion)}</p>`;
+        }
+        warningHtml += `</div></div>`;
+        
+        this.answerSection.innerHTML = warningHtml;
+        this.showLoading(false); // Ensure loading indicator is hidden
     }
 }
 

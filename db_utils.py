@@ -163,7 +163,6 @@ class DatabaseConnection:
                     SELECT ID
                     FROM dbo.tblHPolicies
                     WHERE NationalID = @PrincipalNationalID
-                    AND ID = ParentID
                 )
                 AND c.isDeleted = 0
                 AND c.EndDate > GETDATE()  -- Only show active contracts

@@ -196,7 +196,7 @@ class QwenModelWrapper(BaseChatModel):
     """Wrapper for Qwen2.5-7B-Instruct-AWQ model with optimized performance"""
     model: Any = Field(default=None, description="Qwen Model")
     tokenizer: Any = Field(default=None, description="Tokenizer")
-    model_id: str = Field(default="Qwen/Qwen2.5-7B-Instruct-AWQ", description="Model ID")
+    model_id: str = Field(default="Qwen/Qwen2.5-14B-Instruct-AWQ", description="Model ID")
     device: str = Field(default="cuda" if torch.cuda.is_available() else "cpu", description="Device to run model on")
     
     class Config:

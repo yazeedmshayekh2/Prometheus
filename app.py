@@ -9,6 +9,8 @@ from typing import Optional, List
 from db_utils import DatabaseConnection
 from main import DocumentQASystem
 from question_processor import QuestionProcessor
+# Import the content filter
+from content_filter import filter_user_input, ContentThreatLevel, ContentFilterResult
 import argparse
 import ssl
 import re
@@ -80,10 +82,41 @@ class QueryRequest(BaseModel):
 async def query_endpoint(request: QueryRequest):
     if not qa_system or not question_processor:
         raise HTTPException(status_code=500, detail="System not initialized")
+    
+    # Filter the user's question for harmful content
+    filter_result = filter_user_input(request.question)
+    
+    # If content is CRITICAL or SEVERE, block it immediately
+    if filter_result.threat_level in [ContentThreatLevel.CRITICAL, ContentThreatLevel.SEVERE]:
+        print(f"⚠️ Blocked inappropriate/harmful content - Threat: {filter_result.threat_level.value}")
+        print(f"   Categories: {filter_result.detected_categories}")
+        print(f"   Original: {request.question}")
+        
+        raise HTTPException(
+            status_code=400, 
+            detail={
+                "error": "inappropriate_content_blocked",
+                "message": filter_result.warning_message,
+                "suggestion": "Please rephrase your question using respectful language and focus on insurance topics."
+            }
+        )
+    
+    # If content is MILD or MODERATE, sanitize it and add a warning to the response
+    # The original question will be replaced by the sanitized version for processing
+    user_question_to_process = request.question
+    content_warning_for_response = None
+    
+    if not filter_result.is_safe:
+        print(f"⚠️ Sanitized inappropriate/harmful content - Threat: {filter_result.threat_level.value}")
+        print(f"   Categories: {filter_result.detected_categories}")
+        print(f"   Original: {request.question}")
+        user_question_to_process = filter_result.sanitized_content
+        content_warning_for_response = filter_result.warning_message
+        print(f"   Sanitized to: {user_question_to_process}")
         
     try:
-        # Process the question
-        processed_question = question_processor.preprocess_question(request.question)
+        # Process the question (original or sanitized)
+        processed_question = question_processor.preprocess_question(user_question_to_process)
         
         # Generate answer candidates
         answer_candidates = question_processor.generate_answer(
@@ -91,32 +124,41 @@ async def query_endpoint(request: QueryRequest):
             national_id=request.national_id
         )
         
+        response_data = {}
         if not answer_candidates:
-            # Get fallback response if no good answers found
             fallback = question_processor.get_fallback_response(processed_question)
-            return {
+            response_data = {
                 "answer": fallback,
                 "sources": [],
                 "question_type": processed_question.question_type.value,
                 "confidence": processed_question.confidence_score,
                 "pdf_info": None
             }
+        else:
+            best_answer = answer_candidates[0]
+            response_data = {
+                "answer": best_answer.answer,
+                "sources": best_answer.sources,
+                "question_type": processed_question.question_type.value,
+                "confidence": best_answer.confidence,
+                "explanation": best_answer.explanation,
+                "pdf_info": None
+            }
         
-        # Get the best answer candidate
-        best_answer = answer_candidates[0]
+        # Add content warning if one was generated
+        if content_warning_for_response:
+            response_data["content_warning"] = content_warning_for_response
         
         # Get policy details to include PDF information
-        pdf_info = None
         if request.national_id:
             try:
                 policy_details = qa_system.lookup_policy_details(request.national_id)
                 if policy_details and "primary_member" in policy_details:
                     member = policy_details["primary_member"]
                     if member.get("policies"):
-                        # Get the first policy with a PDF link for embedding
                         for policy in member["policies"]:
                             if policy.get('pdf_link'):
-                                pdf_info = {
+                                response_data["pdf_info"] = {
                                     "pdf_link": policy['pdf_link'],
                                     "company_name": policy.get('company_name', 'Unknown'),
                                     "policy_number": policy.get('policy_number', 'Unknown')
@@ -125,16 +167,7 @@ async def query_endpoint(request: QueryRequest):
             except Exception as e:
                 print(f"Error getting PDF info: {str(e)}")
         
-        formatted_response = {
-            "answer": best_answer.answer,
-            "sources": best_answer.sources,
-            "question_type": processed_question.question_type.value,
-            "confidence": best_answer.confidence,
-            "explanation": best_answer.explanation,
-            "pdf_info": pdf_info
-        }
-        
-        return formatted_response
+        return response_data
         
     except Exception as e:
         print(f"Error processing query: {str(e)}")

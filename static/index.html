@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Insurance Policy Assistant</title>
+    <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Insurance Policy Assistant</h1>
+            <button class="theme-toggle" id="themeToggle">
+                <span class="theme-icon">🌙</span>
+                <span class="theme-text">Dark</span>
+            </button>
+        </header>
+
+        <main>
+            <div class="main-layout">
+                <div class="left-section">
+                    <div class="search-container">
+                        <div class="national-id-container">
+                        <input type="text" 
+                               id="nationalId" 
+                                   placeholder="Enter 11-digit National ID"
+                                   maxlength="11"
+                                   pattern="[0-9]{11}"
+                                   class="input-field national-id-input">
+                            <div id="nationalIdValidation" class="validation-message hidden"></div>
+                            <button id="confirmNationalId" class="confirm-btn hidden">Enter</button>
+                        </div>
+                        
+                        <div id="policiesLoadingIndicator" class="loading-indicator hidden">
+                            <div class="spinner"></div>
+                            <p>Processing user's policies...</p>
+                        </div>
+                        
+                        <div id="policyInfo" class="policy-info hidden">
+                            <div class="family-section">
+                                <div class="family-header">
+                                    <h2 class="family-title">Family Information</h2>
+                                    <div class="family-stats">
+                                        <div class="stat-item">
+                                            <div class="stat-value" id="totalMembers">0</div>
+                                            <div class="stat-label">Total Members</div>
+                                        </div>
+                                        <div class="stat-item">
+                                            <div class="stat-value" id="activePolicies">0</div>
+                                            <div class="stat-label">Active Policies</div>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div id="familyGrid" class="family-grid">
+                                    <!-- Family member cards will be dynamically inserted here -->
+                                </div>
+                                
+                                <div id="familyEmpty" class="family-empty hidden">
+                                    <div class="empty-icon">👨‍👩‍👧‍👦</div>
+                                    <div class="empty-text">No family members found</div>
+                                </div>
+                            </div>
+
+                            <div class="active-policies">
+                                <h3>Active Policies</h3>
+                                <div id="policiesList" class="policies-list"></div>
+                            </div>
+                        </div>
+
+                        <div id="suggestedQuestions" class="suggested-questions hidden">
+                            <h3>Suggested Questions</h3>
+                            <div class="question-bubbles"></div>
+                        </div>
+                        
+                        <textarea id="questionInput" 
+                                  placeholder="Ask a question about your insurance policy..."
+                                  class="input-field"></textarea>
+                        
+                        <button id="submitBtn" class="submit-btn">Ask Question</button>
+                    </div>
+
+                    <div class="response-container">
+                        <div id="loadingIndicator" class="loading-indicator hidden">
+                            <div class="spinner"></div>
+                            <p>Processing user's policies...</p>
+                        </div>
+                        
+                        <div id="responseContent" class="response-content">
+                            <div id="answer" class="answer-section">
+                                <!-- Answers will be inserted here -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="right-section">
+                    <div id="pdfPlaceholder" class="pdf-placeholder">
+                        <div class="pdf-placeholder-icon">📄</div>
+                        <div class="pdf-placeholder-text">
+                            <strong>Policy Document</strong><br>
+                            Enter your National ID to view your policy document
+                        </div>
+                    </div>
+                    
+                    <div id="pdfViewer" class="pdf-viewer-section hidden">
+                        <div class="pdf-header">
+                            <h3>Policy Document</h3>
+                            <span id="pdfCompany" class="pdf-company"></span>
+                        </div>
+                        <iframe id="pdfFrame" class="pdf-frame" title="Policy Document"></iframe>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+    <script>
+        console.log('Testing console before app.js loads...');
+    </script>
+    <script src="js/app.js?v=1"></script>
+</body>
+</html> 

@@ -1,0 +1,102 @@
+{
+	"info": {
+		"_postman_id": "e2c94a4c-3c41-4e72-9e6b-f5d4e3a8e4c5",
+		"name": "Prometheus Insurance API",
+		"description": "API collection for testing the Prometheus Insurance Policy Assistant",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "Query Insurance Policy",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json",
+						"type": "text"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"question\": \"What is my dental coverage limit?\",\n    \"national_id\": \"28140001175\"\n}"
+				},
+				"url": {
+					"raw": "{{baseUrl}}/api/query",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"api",
+						"query"
+					]
+				},
+				"description": "Send a natural language query about an insurance policy"
+			},
+			"response": []
+		},
+		{
+			"name": "Get Suggested Questions",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json",
+						"type": "text"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"national_id\": \"28140001175\"\n}"
+				},
+				"url": {
+					"raw": "{{baseUrl}}/api/suggestions",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"api",
+						"suggestions"
+					]
+				},
+				"description": "Get suggested questions for a customer's policy"
+			},
+			"response": []
+		}
+	],
+	"event": [
+		{
+			"listen": "prerequest",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					""
+				]
+			}
+		},
+		{
+			"listen": "test",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					""
+				]
+			}
+		}
+	],
+	"variable": [
+		{
+			"key": "baseUrl",
+			"value": "http://localhost:5000",
+			"type": "string",
+			"description": "Base URL for the API (change to https:// when using SSL)"
+		},
+		{
+			"key": "ngrokUrl",
+			"value": "https://your-ngrok-url.ngrok.io",
+			"type": "string",
+			"description": "Your ngrok URL when using ngrok (replace with actual URL)"
+		}
+	]
+} 

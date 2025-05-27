@@ -437,8 +437,11 @@ class InsuranceAssistant {
             console.log(`Creating bubble for question ${index + 1}:`, question); // Debug log
             const bubble = document.createElement('div');
             bubble.className = 'question-bubble';
-            bubble.textContent = question;
-            bubble.addEventListener('click', async (e) => {
+            // Remove [], the "Question #N:" prefix, and any other bold markdown for display
+            bubble.textContent = question.replace(/[\[\]]/g, '')
+                                       .replace(/\*\*Question\s*(#\d+|\d+):\*\*\s*/, '')
+                                       .replace(/\*\*(.*?)\*\*/g, '$1');
+            bubble.addEventListener('click', (e) => {
                 e.preventDefault();
                 console.log(`Clicked question ${index + 1}:`, question); // Debug log
                 
@@ -448,12 +451,14 @@ class InsuranceAssistant {
                 }
                 
                 if (this.questionInput) {
-                    this.questionInput.value = question;
-                    // Add a small delay to ensure the value is set and structure is created
-                    await new Promise(resolve => setTimeout(resolve, 50));
-                    if (this.submitBtn && !this.submitBtn.disabled) {
-                        await this.handleSubmit();
-                    }
+                    // MODIFIED: Apply full cleaning to the question text for the input field
+                    const cleanedQuestionForInput = question.replace(/[\[\]]/g, '')
+                                                         .replace(/\*\*Question\s*(#\d+|\d+):\*\*\s*/, '')
+                                                         .replace(/\*\*(.*?)\*\*/g, '$1');
+                    this.questionInput.value = cleanedQuestionForInput;
+                    // MODIFIED: Update button state to enable it if appropriate
+                    this.updateSubmitButtonState(); 
+                    // MODIFIED: Removed auto-submission logic
                 }
             });
             bubblesContainer.appendChild(bubble);

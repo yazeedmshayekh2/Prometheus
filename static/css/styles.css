@@ -157,9 +157,9 @@ h1 {
 }
 
 .submit-btn:hover {
-    background: linear-gradient(135deg, #004080, #0066cc);
+    background: linear-gradient(135deg, #C4A030, var(--secondary-color));
     transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(0, 51, 102, 0.2);
+    box-shadow: 0 4px 12px rgba(212, 175, 55, 0.3);
 }
 
 .submit-btn:disabled {
@@ -1039,9 +1039,9 @@ h1 {
 }
 
 .confirm-btn:hover {
-    background: linear-gradient(135deg, #004080, #0066cc);
+    background: linear-gradient(135deg, #C4A030, var(--secondary-color));
     transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(0, 51, 102, 0.2);
+    box-shadow: 0 4px 12px rgba(212, 175, 55, 0.3);
 }
 
 @keyframes modernPulse {

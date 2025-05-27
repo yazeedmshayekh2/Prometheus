@@ -193,7 +193,7 @@ class DocumentChunk(BaseModel):
         return self.metadata.get(key, default)
 
 class QwenModelWrapper(BaseChatModel):
-    """Wrapper for Qwen2.5-14B-Instruct-AWQ model with optimized performance"""
+    """Wrapper for Qwen2.5-7B-Instruct-AWQ model with optimized performance"""
     model: Any = Field(default=None, description="Qwen Model")
     tokenizer: Any = Field(default=None, description="Tokenizer")
     model_id: str = Field(default="Qwen/Qwen2.5-7B-Instruct-AWQ", description="Model ID")

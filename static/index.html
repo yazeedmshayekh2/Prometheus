@@ -36,19 +36,27 @@
                             <p>Processing user's policies...</p>
                         </div>
                         
-                        <div id="policyInfo" class="policy-info hidden">
-                            <div class="family-section">
-                                <div class="family-header">
-                                    <h2 class="family-title">Family Information</h2>
-                                    <div class="family-stats">
-                                        <div class="stat-item">
-                                            <div class="stat-value" id="totalMembers">0</div>
-                                            <div class="stat-label">Total Members</div>
-                                        </div>
-                                        <div class="stat-item">
-                                            <div class="stat-value" id="activePolicies">0</div>
-                                            <div class="stat-label">Active Policies</div>
-                                        </div>
+                        <!-- Family Information Section - Moved to dedicated area -->
+                        <div id="familyInfoSection" class="family-info-section hidden">
+                            <div class="family-section-header">
+                                <h3 class="section-title">
+                                    <span class="section-icon">👨‍👩‍👧‍👦</span>
+                                    Family Members
+                                </h3>
+                                <button id="toggleFamily" class="toggle-btn">
+                                    <span class="toggle-icon">▼</span>
+                                </button>
+                            </div>
+                            
+                            <div id="familyContent" class="family-content">
+                                <div class="family-stats">
+                                    <div class="stat-card">
+                                        <div class="stat-value" id="totalMembers">0</div>
+                                        <div class="stat-label">Total Members</div>
+                                    </div>
+                                    <div class="stat-card">
+                                        <div class="stat-value" id="activePolicies">0</div>
+                                        <div class="stat-label">Active Policies</div>
                                     </div>
                                 </div>
                                 
@@ -61,7 +69,10 @@
                                     <div class="empty-text">No family members found</div>
                                 </div>
                             </div>
-
+                        </div>
+                        
+                        <div id="policyInfo" class="policy-info hidden">
+                            <!-- Removed family section from here -->
                             <div class="active-policies">
                                 <h3>Active Policies</h3>
                                 <div id="policiesList" class="policies-list"></div>

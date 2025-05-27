@@ -352,11 +352,63 @@ async def get_suggestions(request: SuggestionsRequest):
         final_questions = sort_questions_by_relevance_and_diversity(unique_questions)[:5]
         print(f"\nReturning {len(final_questions)} unique questions")
         
+        # Get family members information
+        family_data = None
+        try:
+            family_df = qa_system.db.get_family_members(request.national_id)
+            if not family_df.empty:
+                print(f"Family DataFrame columns: {list(family_df.columns)}")
+                print(f"Family DataFrame shape: {family_df.shape}")
+                print("First few rows:")
+                print(family_df.head())
+                
+                family_members = []
+                for _, family_member_row in family_df.iterrows():
+                    family_member = {
+                        "name": family_member_row.get('Name', ''),
+                        "national_id": family_member_row.get('NationalID', ''),
+                        "relation": 'SPOUSE' if family_member_row.get('RelationOrder', 3) == 1 else ('CHILD' if family_member_row.get('RelationOrder', 3) == 2 else 'PRINCIPAL'),  # Derive relation from RelationOrder
+                        "date_of_birth": str(family_member_row.get('DateOfBirth', '')) if family_member_row.get('DateOfBirth') else '',  # Convert timestamp to string
+                        "contract_id": family_member_row.get('ContractID', ''),
+                        "company_name": family_member_row.get('CompanyName', ''),
+                        "policy_number": family_member_row.get('PolicyNo', ''),
+                        "start_date": str(family_member_row.get('ContractStart', '')) if family_member_row.get('ContractStart') else '',
+                        "end_date": str(family_member_row.get('ContractEnd', '')) if family_member_row.get('ContractEnd') else '',
+                        "annual_limit": family_member_row.get('AnnualLimit', ''),
+                        "area_of_cover": family_member_row.get('AreaofCover', ''),
+                        "emergency_treatment": family_member_row.get('EmergencyTreatment', ''),
+                        "pdf_link": family_member_row.get('PDFLink', ''),
+                        "staff_number": '',  # Not available in this query
+                        "group_number": '',  # Not available in this query
+                        "plan_type": '',  # Not available in this query
+                        "network_type": '',  # Not available in this query
+                        "premium": 0,  # Not available in this query
+                        "relation_order": family_member_row.get('RelationOrder', 3)
+                    }
+                    family_members.append(family_member)
+                
+                # Sort by relation order (spouse first, then children)
+                family_members.sort(key=lambda x: x['relation_order'])
+                
+                family_data = {
+                    "members": family_members,
+                    "total_members": len(family_members)
+                }
+                print(f"Found {len(family_members)} family members")
+                print("Family members data:", family_members)
+            else:
+                print("No family members found in database")
+        except Exception as e:
+            print(f"Error getting family members: {str(e)}")
+            import traceback
+            traceback.print_exc()
+        
         response_data = {
             "questions": final_questions,
             "pdf_info": pdf_info,
             "total_policies": len(member['policies']) if member and member.get('policies') else 0,
-            "valid_pdfs": valid_pdfs_found
+            "valid_pdfs": valid_pdfs_found,
+            "family_data": family_data
         }
         
         print("\nResponse Data:")
@@ -506,6 +558,34 @@ def sort_questions_by_relevance_and_diversity(questions: List[str]) -> List[str]
     
     # Extract just the questions, scores are no longer needed
     return [q[0] for q in sorted_questions]
+
+# Add test endpoint for family members before static files
+class FamilyTestRequest(BaseModel):
+    national_id: str
+
+@app.post("/api/test-family")
+async def test_family_members(request: FamilyTestRequest):
+    """Test endpoint to check family member data directly"""
+    if not qa_system:
+        raise HTTPException(status_code=500, detail="System not initialized")
+    
+    try:
+        print(f"Testing family members for National ID: {request.national_id}")
+        family_df = qa_system.db.get_family_members(request.national_id)
+        
+        result = {
+            "national_id": request.national_id,
+            "rows_found": len(family_df),
+            "columns": list(family_df.columns) if not family_df.empty else [],
+            "data": family_df.to_dict('records') if not family_df.empty else []
+        }
+        
+        print("Test result:", result)
+        return result
+        
+    except Exception as e:
+        print(f"Error in test endpoint: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 # Set up static files - Move this after API routes
 STATIC_DIR = Path("static")

@@ -133,20 +133,57 @@ class DatabaseConnection:
     def get_family_members(self, national_id: str) -> pd.DataFrame:
         """Get all family members associated with the policy holder"""
         try:
+            print(f"Getting family members for National ID: {national_id}")
             with pyodbc.connect(self.connection_string) as conn:
                 query = """
-                SELECT DISTINCT 
-                    p.Name,
+                DECLARE @PrincipalNationalID NVARCHAR(50) = ? -- Replace with the principal's national ID
+
+                SELECT DISTINCT
                     p.NationalID,
-                    p.IndividualID,
-                    CASE WHEN p.ID = p.ParentID THEN 'Primary' ELSE 'Dependent' END as MemberType
-                FROM dbo.fnGetActivePolicyDetails(?) p
-                ORDER BY MemberType DESC, Name
+                    p.Name,
+                    p.ContractID,
+                    p.CardURL,
+                    p.DOB as DateOfBirth,
+                    c.CompanyName,
+                    c.PolicyNo,
+                    c.StartDate as ContractStart,
+                    c.EndDate as ContractEnd,
+                    c.AnnualLimit,
+                    c.AreaofCover,
+                    c.EmergencyTreatment,
+                    c.PDFLink,
+                    CASE
+                        WHEN UPPER(p.Relation) LIKE '%SPOUSE%' THEN 1
+                        WHEN UPPER(p.Relation) LIKE '%CHILD%' THEN 2
+                        ELSE 3
+                    END as RelationOrder
+                FROM dbo.tblHPolicies p
+                JOIN dbo.tblHContracts c ON p.ContractID = c.ID
+                WHERE p.ParentID = (
+                    SELECT ID
+                    FROM dbo.tblHPolicies
+                    WHERE NationalID = @PrincipalNationalID
+                    AND ID = ParentID
+                )
+                AND c.isDeleted = 0
+                AND c.EndDate > GETDATE()  -- Only show active contracts
+                ORDER BY
+                    RelationOrder,
+                    p.Name;
                 """
-                return pd.read_sql(query, conn, params=[national_id])
+                print("Executing family members query...")
+                df = pd.read_sql(query, conn, params=[national_id])
+                print(f"Query returned {len(df)} rows")
+                if len(df) > 0:
+                    print(f"Columns: {list(df.columns)}")
+                    print("Sample data:")
+                    print(df.head())
+                return df
                 
         except Exception as e:
             print(f"Error getting family members: {str(e)}")
+            import traceback
+            traceback.print_exc()
             return pd.DataFrame()
 
     def get_policy_details(self, national_id: str) -> Dict[str, Any]:

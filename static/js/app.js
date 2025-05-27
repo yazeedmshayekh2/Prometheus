@@ -273,12 +273,37 @@ class InsuranceAssistant {
             const suggestions = await this.getSuggestedQuestions(nationalId);
             console.log('Received suggestions:', suggestions);
             
+            // Test family endpoint directly
+            console.log('Testing family endpoint directly...');
+            try {
+                const familyTestResponse = await fetch('/api/test-family', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ national_id: nationalId })
+                });
+                const familyTestData = await familyTestResponse.json();
+                console.log('Family test data:', familyTestData);
+            } catch (err) {
+                console.error('Family test error:', err);
+            }
+            
             // Clear any previous error states
             if (this.pdfPlaceholder) {
                 this.pdfPlaceholder.classList.remove('error');
             }
             
             this.displaySuggestedQuestions(suggestions);
+            
+            // Display family information if available
+            console.log('Checking for family data:', suggestions.family_data);
+            if (suggestions.family_data && suggestions.family_data.members && suggestions.family_data.members.length > 0) {
+                console.log('Displaying family information for', suggestions.family_data.members.length, 'members');
+                this.displayFamilyInformation(suggestions.family_data);
+            } else {
+                console.log('No family data to display');
+            }
             
             // Display PDF if available in suggestions response
             if (suggestions.pdf_info && suggestions.pdf_info.pdf_link) {
@@ -868,70 +893,133 @@ class InsuranceAssistant {
     }
 
     displayFamilyInformation(familyData) {
+        console.log('displayFamilyInformation called with:', familyData);
+        
+        const familyInfoSection = document.getElementById('familyInfoSection');
         const familyGrid = document.getElementById('familyGrid');
         const familyEmpty = document.getElementById('familyEmpty');
         const totalMembersElement = document.getElementById('totalMembers');
         const activePoliciesElement = document.getElementById('activePolicies');
 
+        console.log('DOM elements found:', {
+            familyInfoSection: !!familyInfoSection,
+            familyGrid: !!familyGrid,
+            familyEmpty: !!familyEmpty,
+            totalMembersElement: !!totalMembersElement,
+            activePoliciesElement: !!activePoliciesElement
+        });
+
         if (!familyData || !familyData.members || familyData.members.length === 0) {
-            familyGrid.classList.add('hidden');
-            familyEmpty.classList.remove('hidden');
-            totalMembersElement.textContent = '0';
-            activePoliciesElement.textContent = '0';
+            if (familyInfoSection) familyInfoSection.classList.add('hidden');
+            if (familyGrid) familyGrid.classList.add('hidden');
+            if (familyEmpty) familyEmpty.classList.remove('hidden');
+            if (totalMembersElement) totalMembersElement.textContent = '0';
+            if (activePoliciesElement) activePoliciesElement.textContent = '0';
             return;
         }
 
-        familyGrid.classList.remove('hidden');
-        familyEmpty.classList.add('hidden');
-
-        // Update stats
-        totalMembersElement.textContent = familyData.members.length;
-        activePoliciesElement.textContent = familyData.active_policies || '0';
-
-        // Clear existing content
-        familyGrid.innerHTML = '';
-
-        // Add family member cards
-        familyData.members.forEach(member => {
-            const card = document.createElement('div');
-            card.className = 'family-card';
+        // Show the family section
+        if (familyInfoSection) {
+            familyInfoSection.classList.remove('hidden');
             
-            // Create member avatar with initials
-            const initials = this.getInitials(member.name);
+            // Set up toggle functionality if not already done
+            const toggleBtn = document.getElementById('toggleFamily');
+            const familyContent = document.getElementById('familyContent');
             
-            card.innerHTML = `
-                <div class="member-avatar">${initials}</div>
-                <div class="member-details">
-                    <div class="member-name">${this.escapeHtml(member.name)}</div>
-                    <div class="member-relation">${this.escapeHtml(member.relation)}</div>
-                    <div class="member-info-grid">
-                        <div class="info-item">
-                            <div class="info-label">Policy No.</div>
-                            <div class="info-value">${this.escapeHtml(member.policy_no || 'N/A')}</div>
-                        </div>
-                        <div class="info-item">
-                            <div class="info-label">Staff No.</div>
-                            <div class="info-value">${this.escapeHtml(member.staff_no || 'N/A')}</div>
-                        </div>
-                        <div class="info-item">
-                            <div class="info-label">Start Date</div>
-                            <div class="info-value">${this.formatDate(member.start_date)}</div>
-                        </div>
-                        <div class="info-item">
-                            <div class="info-label">End Date</div>
-                            <div class="info-value">${this.formatDate(member.end_date)}</div>
-                        </div>
+            if (toggleBtn && familyContent && !toggleBtn.hasAttribute('data-initialized')) {
+                toggleBtn.setAttribute('data-initialized', 'true');
+                toggleBtn.addEventListener('click', () => {
+                    const isCollapsed = familyContent.classList.contains('collapsed');
+                    if (isCollapsed) {
+                        familyContent.classList.remove('collapsed');
+                        toggleBtn.classList.remove('collapsed');
+                    } else {
+                        familyContent.classList.add('collapsed');
+                        toggleBtn.classList.add('collapsed');
+                    }
+                });
+            }
+        }
+
+        // Update statistics
+        if (totalMembersElement) totalMembersElement.textContent = familyData.total_members.toString();
+        if (activePoliciesElement) activePoliciesElement.textContent = '1'; // We know there's at least 1 policy
+
+        // Hide empty state and show grid
+        if (familyEmpty) familyEmpty.classList.add('hidden');
+        if (familyGrid) {
+            familyGrid.classList.remove('hidden');
+            familyGrid.innerHTML = ''; // Clear existing content
+
+            familyData.members.forEach(member => {
+                const memberCard = this.createFamilyMemberCard(member);
+                familyGrid.appendChild(memberCard);
+            });
+        }
+    }
+
+    createFamilyMemberCard(member) {
+        // Implementation of createFamilyMemberCard method
+        // This method should return a DOM element representing a family member card
+        // For example, you can create a div element with appropriate classes and structure
+        // based on the member data
+        const card = document.createElement('div');
+        card.className = 'family-card';
+        
+        // Create member avatar with initials
+        const initials = this.getInitials(member.name);
+        
+        // Determine relation icon
+        const relationIcon = this.getRelationIcon(member.relation);
+        
+        card.innerHTML = `
+            <div class="member-avatar">${initials}</div>
+            <div class="member-details">
+                <div class="member-name">${this.escapeHtml(member.name)}</div>
+                <div class="member-relation">${relationIcon} ${this.escapeHtml(member.relation)}</div>
+                <div class="member-info-grid">
+                    <div class="info-item">
+                        <div class="info-label">National ID</div>
+                        <div class="info-value">${this.escapeHtml(member.national_id || 'N/A')}</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-label">Date of Birth</div>
+                        <div class="info-value">${this.formatDate(member.date_of_birth)}</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-label">Policy No.</div>
+                        <div class="info-value">${this.escapeHtml(member.policy_number || 'N/A')}</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-label">Company</div>
+                        <div class="info-value">${this.escapeHtml(member.company_name || 'N/A')}</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-label">Start Date</div>
+                        <div class="info-value">${this.formatDate(member.start_date)}</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-label">End Date</div>
+                        <div class="info-value">${this.formatDate(member.end_date)}</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-label">Annual Limit</div>
+                        <div class="info-value">${this.escapeHtml(member.annual_limit || 'N/A')}</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-label">Coverage Area</div>
+                        <div class="info-value">${this.escapeHtml(member.area_of_cover || 'N/A')}</div>
                     </div>
                 </div>
-            `;
+            </div>
+        `;
 
-            // Add click event to show member's policy details
-            card.addEventListener('click', () => {
-                this.showMemberPolicyDetails(member);
-            });
-
-            familyGrid.appendChild(card);
+        // Add click event to show member's policy details
+        card.addEventListener('click', () => {
+            this.showMemberPolicyDetails(member);
         });
+
+        return card;
     }
 
     getInitials(name) {
@@ -971,16 +1059,32 @@ class InsuranceAssistant {
                 <div class="modal-body">
                     <div class="policy-details-grid">
                         <div class="detail-item">
-                            <div class="detail-label">Policy Number</div>
-                            <div class="detail-value">${this.escapeHtml(member.policy_no || 'N/A')}</div>
+                            <div class="detail-label">Full Name</div>
+                            <div class="detail-value">${this.escapeHtml(member.name)}</div>
+                        </div>
+                        <div class="detail-item">
+                            <div class="detail-label">National ID</div>
+                            <div class="detail-value">${this.escapeHtml(member.national_id || 'N/A')}</div>
                         </div>
                         <div class="detail-item">
                             <div class="detail-label">Relation</div>
-                            <div class="detail-value">${this.escapeHtml(member.relation)}</div>
+                            <div class="detail-value">${this.getRelationIcon(member.relation)} ${this.escapeHtml(member.relation)}</div>
                         </div>
                         <div class="detail-item">
-                            <div class="detail-label">Staff Number</div>
-                            <div class="detail-value">${this.escapeHtml(member.staff_no || 'N/A')}</div>
+                            <div class="detail-label">Date of Birth</div>
+                            <div class="detail-value">${this.formatDate(member.date_of_birth)}</div>
+                        </div>
+                        <div class="detail-item">
+                            <div class="detail-label">Policy Number</div>
+                            <div class="detail-value">${this.escapeHtml(member.policy_number || 'N/A')}</div>
+                        </div>
+                        <div class="detail-item">
+                            <div class="detail-label">Company Name</div>
+                            <div class="detail-value">${this.escapeHtml(member.company_name || 'N/A')}</div>
+                        </div>
+                        <div class="detail-item">
+                            <div class="detail-label">Contract ID</div>
+                            <div class="detail-value">${this.escapeHtml(member.contract_id || 'N/A')}</div>
                         </div>
                         <div class="detail-item">
                             <div class="detail-label">Coverage Period</div>
@@ -988,11 +1092,25 @@ class InsuranceAssistant {
                                 ${this.formatDate(member.start_date)} - ${this.formatDate(member.end_date)}
                             </div>
                         </div>
-                        ${member.benefits ? `
+                        <div class="detail-item">
+                            <div class="detail-label">Annual Limit</div>
+                            <div class="detail-value">${this.escapeHtml(member.annual_limit || 'N/A')}</div>
+                        </div>
+                        <div class="detail-item">
+                            <div class="detail-label">Coverage Area</div>
+                            <div class="detail-value">${this.escapeHtml(member.area_of_cover || 'N/A')}</div>
+                        </div>
+                        <div class="detail-item full-width">
+                            <div class="detail-label">Emergency Treatment</div>
+                            <div class="detail-value">${this.escapeHtml(member.emergency_treatment || 'N/A')}</div>
+                        </div>
+                        ${member.pdf_link ? `
                             <div class="detail-item full-width">
-                                <div class="detail-label">Benefits</div>
-                                <div class="detail-value benefits-list">
-                                    ${this.formatBenefits(member.benefits)}
+                                <div class="detail-label">Policy Document</div>
+                                <div class="detail-value">
+                                    <a href="${this.escapeHtml(member.pdf_link)}" target="_blank" style="color: var(--primary-color); text-decoration: none;">
+                                        📄 View Policy Document
+                                    </a>
                                 </div>
                             </div>
                         ` : ''}
@@ -1033,10 +1151,29 @@ class InsuranceAssistant {
         }
     }
 
+    getRelationIcon(relation) {
+        if (!relation) return '👤';
+        const relationLower = relation.toLowerCase();
+        if (relationLower.includes('spouse') || relationLower.includes('wife') || relationLower.includes('husband')) {
+            return '💑';
+        } else if (relationLower.includes('child') || relationLower.includes('son') || relationLower.includes('daughter')) {
+            return '👶';
+        } else if (relationLower.includes('father') || relationLower.includes('mother') || relationLower.includes('parent')) {
+            return '👴';
+        }
+        return '👤';
+    }
+
     clearResults(showError = false, errorMessage = '', showDefault = false) {
         // Hide suggestions
         if (this.suggestedQuestions) {
             this.suggestedQuestions.classList.add('hidden');
+        }
+
+        // Hide family information
+        const familyInfoSection = document.getElementById('familyInfoSection');
+        if (familyInfoSection) {
+            familyInfoSection.classList.add('hidden');
         }
 
         // Hide PDF viewer
@@ -1054,10 +1191,10 @@ class InsuranceAssistant {
             if (showError) {
                 this.pdfPlaceholder.classList.remove('hidden');
                 this.pdfPlaceholder.innerHTML = `
-                    <div class="pdf-placeholder-icon">⚠️</div>
+                    <div class="pdf-placeholder-icon error">⚠️</div>
                     <div class="pdf-placeholder-text error">
-                        <strong>Error Loading Policy</strong><br>
-                        ${errorMessage || 'Unable to load policy information'}
+                        <strong>Error</strong><br>
+                        ${this.escapeHtml(errorMessage)}
                     </div>
                 `;
             } else if (showDefault) {
@@ -1065,7 +1202,8 @@ class InsuranceAssistant {
                 this.pdfPlaceholder.innerHTML = `
                     <div class="pdf-placeholder-icon">📄</div>
                     <div class="pdf-placeholder-text">
-                        Enter your National ID to view your policy documents
+                        <strong>Policy Document</strong><br>
+                        Enter your National ID to view your policy document
                     </div>
                 `;
             } else {

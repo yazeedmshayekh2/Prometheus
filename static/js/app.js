@@ -1062,15 +1062,24 @@ class InsuranceAssistant {
     createFamilyTree(members) {
         console.log('createFamilyTree called with members:', members);
         
-        // Organize members by relation
+        // Organize members by relation and level
         const principal = members.find(m => m.relation === 'PRINCIPAL' || m.relation_order === 3);
         const spouse = members.find(m => m.relation === 'SPOUSE' || m.relation_order === 1);
-        const children = members.filter(m => m.relation === 'CHILD' || m.relation_order === 2);
+        
+        // Group children by their parent's ID
+        const childrenByParent = {};
+        members.filter(m => m.relation === 'CHILD' || m.relation_order === 2).forEach(child => {
+            const parentId = child.parent_id || 'root';
+            if (!childrenByParent[parentId]) {
+                childrenByParent[parentId] = [];
+            }
+            childrenByParent[parentId].push(child);
+        });
 
         console.log('Organized members:', {
             principal: principal,
             spouse: spouse,
-            children: children
+            childrenByParent: childrenByParent
         });
 
         // Create main tree container
@@ -1116,52 +1125,94 @@ class InsuranceAssistant {
 
         treeContainer.appendChild(parentLevel);
 
-        // Add children section if there are children
-        if (children.length > 0) {
-            // Add vertical line from parents to children
+        // Function to recursively create child nodes
+        const createChildrenNodes = (parentId, level = 0) => {
+            const children = childrenByParent[parentId];
+            if (!children || children.length === 0) return null;
+
+            // Create container for this level of children
+            const childrenContainer = document.createElement('div');
+            childrenContainer.className = 'children-level level-' + level;
+            childrenContainer.style.cssText = `
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                gap: 1rem; /* Adjusted gap for rows */
+                margin-top: ${level === 0 ? '2rem' : '1rem'};
+                position: relative;
+            `;
+
+            // Add vertical line from parent
             const verticalLine = document.createElement('div');
-            verticalLine.style.cssText = 
-                'width: 2px;' +
-                'height: 40px;' +
-                'background: linear-gradient(180deg, #c2e3da, #9dd4b8);' +
-                'margin: 0 auto;';
-            treeContainer.appendChild(verticalLine);
+            verticalLine.style.cssText = `
+                width: 2px;
+                height: 40px;
+                background: linear-gradient(180deg, #c2e3da, #9dd4b8);
+                margin-bottom: 1rem;
+            `;
+            childrenContainer.appendChild(verticalLine);
 
-            // Create children level container with appropriate class based on number of children
-            const childrenLevel = document.createElement('div');
-            childrenLevel.className = 'children-level';
-            
-            // Add additional class based on number of children
-            if (children.length === 1) {
-                childrenLevel.classList.add('single-child');
-            } else if (children.length <= 3) {
-                childrenLevel.classList.add('single-row');
+            // Process children in pairs
+            for (let i = 0; i < children.length; i += 2) {
+                const childrenPair = children.slice(i, i + 2);
+
+                // Create row for this pair of children
+                const childrenRow = document.createElement('div');
+                childrenRow.style.cssText = `
+                    display: flex;
+                    justify-content: center;
+                    gap: 3rem;
+                    position: relative;
+                    width: 100%; /* Ensure row takes full width */
+                    margin-bottom: 1rem; /* Add margin between rows */
+                `;
+
+                // Add horizontal line connecting children if more than one in the pair
+                if (childrenPair.length > 1) {
+                    const horizontalLine = document.createElement('div');
+                    horizontalLine.style.cssText = `
+                        position: absolute;
+                        top: 50%;
+                        left: 25%; /* Adjusted for two children */
+                        right: 25%; /* Adjusted for two children */
+                        height: 2px;
+                        background: linear-gradient(90deg, #c2e3da, #9dd4b8);
+                        z-index: 1;
+                    `;
+                    childrenRow.appendChild(horizontalLine);
+                }
+
+                // Add child nodes in the pair
+                childrenPair.forEach(child => {
+                    const childWrapper = document.createElement('div');
+                    childWrapper.style.cssText = `
+                        display: flex;
+                        flex-direction: column;
+                        align-items: center;
+                        position: relative;
+                        z-index: 2;
+                    `;
+
+                    const childNode = this.createSimpleTreeNode(child, 'CHILD');
+                    childWrapper.appendChild(childNode);
+
+                    // Recursively add next level of children
+                    const nextLevel = createChildrenNodes(child.national_id, level + 1);
+                    if (nextLevel) {
+                        childWrapper.appendChild(nextLevel);
+                    }
+
+                    childrenRow.appendChild(childWrapper);
+                });
+                childrenContainer.appendChild(childrenRow);
             }
+            return childrenContainer;
+        };
 
-            // Add child nodes in a grid layout
-            children.forEach((child) => {
-                const childNode = this.createSimpleTreeNode(child, 'CHILD');
-                
-                // Add vertical line above each child
-                const childContainer = document.createElement('div');
-                childContainer.style.cssText = 
-                    'display: flex;' +
-                    'flex-direction: column;' +
-                    'align-items: center;';
-                
-                const childLine = document.createElement('div');
-                childLine.style.cssText = 
-                    'width: 2px;' +
-                    'height: 20px;' +
-                    'background: linear-gradient(180deg, #c2e3da, #9dd4b8);' +
-                    'margin-bottom: 0.5rem;';
-                
-                childContainer.appendChild(childLine);
-                childContainer.appendChild(childNode);
-                childrenLevel.appendChild(childContainer);
-            });
-
-            treeContainer.appendChild(childrenLevel);
+        // Add root level children
+        const rootChildren = createChildrenNodes('root');
+        if (rootChildren) {
+            treeContainer.appendChild(rootChildren);
         }
 
         console.log('Tree container created:', treeContainer);
@@ -1184,12 +1235,12 @@ class InsuranceAssistant {
                 <div class="family-tree-node-name">${this.escapeHtml(member.name)}</div>
                 <div class="family-tree-node-relation">${relationIcon} ${this.escapeHtml(nodeType)}</div>
                 <div class="family-tree-node-details">
-                    ${member.national_id ? `
+                ${member.national_id ? `
                         <div class="family-tree-node-detail">
                             <span class="family-tree-node-detail-label">ID</span>
                             <span class="family-tree-node-detail-value">${this.escapeHtml(member.national_id)}</span>
-                        </div>
-                    ` : ''}
+                    </div>
+                ` : ''}
                     <div class="family-tree-node-detail">
                         <span class="family-tree-node-detail-label">DOB</span>
                         <span class="family-tree-node-detail-value">${this.formatDate(member.date_of_birth)}</span>

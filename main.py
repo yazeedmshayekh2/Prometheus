@@ -237,7 +237,7 @@ class QwenModelWrapper(BaseChatModel):
                 
                 # Set to eval mode for inference
                 self.model.eval()
-                print(f"Qwen2.5-14B-Instruct-AWQ model loaded successfully on CUDA")
+                print(f"Qwen2.5-7B-Instruct-AWQ model loaded successfully on CUDA")
                 
             except Exception as e:
                 print(f"Error loading Qwen model: {str(e)}")
@@ -3737,7 +3737,7 @@ ANSWER:"""
         Generate intelligent follow-up questions
         """
         try:
-            # Initialize with standard follow-up questions
+                # Initialize with standard follow-up questions
             standard_questions = [
                 "What are the specific limitations for this coverage?",
                 "What is the annual limit for this benefit?",

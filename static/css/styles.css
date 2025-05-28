@@ -523,7 +523,7 @@ h1 {
     color: #059669;
     font-size: 1.2em;
     font-weight: bold;
-    background: #ffffff;
+    background: #ffffffe7;
     border-radius: 50%;
     width: 1.5rem;
     height: 1.5rem;
@@ -822,7 +822,7 @@ h1 {
     gap: 2rem;
     position: relative;
     width: 100%;
-    max-width: 1000px;
+    max-width: 1200px;
     margin: 0 auto;
     padding: 2rem;
     background: rgba(194, 227, 218, 0.05);
@@ -843,25 +843,46 @@ h1 {
     z-index: 2;
 }
 
+.family-tree-node:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 8px 25px rgba(194, 227, 218, 0.3);
+}
+
 /* Children level container */
 .children-level {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(180px, 220px));
-    gap: 1.5rem;
-    justify-content: center;
-    width: fit-content;
-    margin: 0 auto;
-    padding: 0 1rem;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 100%;
+    position: relative;
 }
 
-/* For 3 children or less, show them in a single row */
-.children-level.single-row {
-    grid-template-columns: repeat(3, minmax(180px, 220px));
+/* Specific styling for each level */
+.children-level.level-0 {
+    margin-top: 2rem;
 }
 
-/* For 1 child, center it */
-.children-level.single-child {
-    grid-template-columns: minmax(180px, 220px);
+.children-level.level-1 {
+    margin-top: 1.5rem;
+}
+
+.children-level.level-2 {
+    margin-top: 1rem;
+}
+
+/* Tree connections */
+.tree-connection {
+    position: absolute;
+    background: linear-gradient(90deg, #c2e3da, #9dd4b8);
+    z-index: 1;
+}
+
+.tree-connection.horizontal {
+    height: 2px;
+}
+
+.tree-connection.vertical {
+    width: 2px;
 }
 
 /* Node content styling */
@@ -870,6 +891,8 @@ h1 {
     flex-direction: column;
     align-items: center;
     gap: 0.5rem;
+    position: relative;
+    z-index: 2;
 }
 
 .family-tree-node-initials {
@@ -932,27 +955,22 @@ h1 {
 }
 
 /* Responsive adjustments */
-@media (max-width: 768px) {
+@media (max-width: 1200px) {
     .family-tree {
         padding: 1rem;
+        max-width: 100%;
     }
+}
 
+@media (max-width: 768px) {
     .family-tree-node {
-        min-width: 180px;
-        max-width: 240px;
-        padding: 1rem;
+        min-width: 150px;
+        max-width: 180px;
+        padding: 0.75rem;
     }
-
-    .spouse-line {
-        width: 60px;
-    }
-
-    .parent-child-line {
-        height: 40px;
-    }
-
-    .child-line {
-        height: 25px;
+    
+    .children-level {
+        gap: 1.5rem;
     }
 }
 
@@ -1280,19 +1298,17 @@ h1 {
 
 /* Enhanced confirm button with main green color */
 .confirm-btn {
-    background: linear-gradient(135deg, #c2e3da, #9dd4b8, #c2e3da);
-    background-size: 200% 100%;
+    /* background: linear-gradient(135deg, #c2e3da, #9dd4b8, #c2e3da); */
+    background-size: 100%;
     color: #2c5530;
     padding: 1.2rem 3rem;
-    border: 3px solid #b8dcc9;
+    border: 2px solid #7cc29f;
     border-radius: 16px;
     font-size: 1.1rem;
     font-weight: 700;
     cursor: pointer;
     transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-    box-shadow: 
-        0 6px 20px rgba(194, 227, 218, 0.4),
-        inset 0 2px 4px rgba(255, 255, 255, 0.3);
+    box-shadow: 0 6px 20px rgba(194, 227, 218, 0.4), inset 0 2px 4px rgba(255, 255, 255, 0.3);
     position: relative;
     overflow: hidden;
     text-transform: uppercase;
@@ -1310,21 +1326,6 @@ h1 {
     background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.4), transparent);
     transition: left 0.6s;
 }
-
-.confirm-btn:hover {
-    background-position: 100% 0;
-    transform: translateY(-3px) scale(1.02);
-    box-shadow: 
-        0 10px 30px rgba(194, 227, 218, 0.5),
-        inset 0 2px 4px rgba(255, 255, 255, 0.4);
-    border-color: #9dd4b8;
-    color: #1a4d2e;
-}
-
-.confirm-btn:hover::before {
-    left: 100%;
-}
-
 
 @keyframes medicalPulse {
     0% {
@@ -1440,11 +1441,6 @@ h1 {
     height: auto;
     border-radius: 8px;
     padding: 8px;
-}
-
-.logo:hover {
-    transform: scale(1.05);
-    filter: drop-shadow(0 6px 12px rgba(0, 0, 0, 0.3));
 }
 
 /* Enhanced policy document placeholder */

@@ -3,24 +3,32 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Insurance Policy Assistant</title>
+    <title>Doha Insurance Group - Medical Group Policy Assistant</title>
     <link rel="stylesheet" href="css/styles.css">
 </head>
 <body>
     <div class="container">
         <header>
-            <h1>Insurance Policy Assistant</h1>
-            <button class="theme-toggle" id="themeToggle">
-                <span class="theme-icon">🌙</span>
-                <span class="theme-text">Dark</span>
-            </button>
+            <img src="imgs/dig-sm-logo.png" alt="Doha Insurance Group Logo" class="logo">
+            <h1>Medical Group Policy Assistant</h1>
         </header>
 
-        <main>
+        <div class="content">
+<div class="row">
+    <div class="col-12">
+        <div class="chatbot-description">
+            <h4>This is a <span class="highlight">chatbot</span> that can help you with your <span class="highlight">medical group policy</span>. It can answer questions about your policy, and help you find the <span class="highlight">best coverage</span> for your needs.</h4>
+        </div>
+    </div>
+</div>
+
+
+
+
             <div class="main-layout">
                 <div class="left-section">
                     <div class="search-container">
-                        <div class="national-id-container">
+                        <div class="">
                         <input type="text" 
                                id="nationalId" 
                                    placeholder="Enter 11-digit National ID"
@@ -40,7 +48,7 @@
                         <div id="familyInfoSection" class="family-info-section hidden">
                             <div class="family-section-header">
                                 <h3 class="section-title">
-                                    <span class="section-icon">👨‍👩‍👧‍👦</span>
+                                    <span class="section-icon"></span>
                                     Family Members
                                 </h3>
                                 <button id="toggleFamily" class="toggle-btn">
@@ -91,7 +99,7 @@
                         <button id="submitBtn" class="submit-btn">Ask Question</button>
                     </div>
 
-                    <div class="response-container">
+                    <div class="response-container hidden">
                         <div id="loadingIndicator" class="loading-indicator hidden">
                             <div class="spinner"></div>
                             <p>Processing user's policies...</p>

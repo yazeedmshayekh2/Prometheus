@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response, StreamingResponse
@@ -16,6 +16,10 @@ import ssl
 import re
 import aiohttp
 import io
+from swagger_docs import (
+    QueryRequest, PDFRequest, SuggestionsRequest, FamilyTestRequest,
+    QueryResponse, ErrorResponse, Source, PDFInfo
+)
 
 # Add ngrok import
 try:
@@ -60,8 +64,16 @@ async def lifespan(app: FastAPI):
         except:
             pass
 
-# Initialize FastAPI app with lifespan
-app = FastAPI(lifespan=lifespan)
+# Initialize FastAPI app with lifespan and documentation
+app = FastAPI(
+    title="Insurance QA API",
+    description="""
+    This API provides endpoints for querying insurance policy information,
+    retrieving policy documents, and getting policy suggestions.
+    """,
+    version="1.0.0",
+    lifespan=lifespan
+)
 
 # Enable CORS - Update to allow all origins in development
 app.add_middleware(
@@ -78,7 +90,21 @@ class QueryRequest(BaseModel):
     national_id: Optional[str] = None
     system_prompt: Optional[str] = None
 
-@app.post("/api/query")
+@app.post(
+    "/api/query",
+    response_model=QueryResponse,
+    responses={
+        400: {"model": ErrorResponse, "description": "Bad request or inappropriate content"},
+        500: {"model": ErrorResponse, "description": "Internal server error"}
+    },
+    tags=["Query"],
+    summary="Query the insurance QA system",
+    description="""
+    Submit a question about insurance policies and get a detailed response.
+    The system will process natural language questions and return relevant information
+    from policy documents along with confidence scores and sources.
+    """
+)
 async def query_endpoint(request: QueryRequest):
     if not qa_system or not question_processor:
         raise HTTPException(status_code=500, detail="System not initialized")
@@ -177,7 +203,17 @@ async def query_endpoint(request: QueryRequest):
 class PDFRequest(BaseModel):
     pdf_link: str
 
-@app.post("/api/pdf")
+@app.post(
+    "/api/pdf",
+    response_class=StreamingResponse,
+    responses={
+        400: {"model": ErrorResponse, "description": "Invalid PDF link"},
+        500: {"model": ErrorResponse, "description": "Failed to retrieve PDF"}
+    },
+    tags=["Documents"],
+    summary="Retrieve a policy document",
+    description="Fetch a PDF document using the provided link."
+)
 async def get_pdf(request: PDFRequest):
     try:
         if not request.pdf_link or not request.pdf_link.strip():
@@ -254,7 +290,16 @@ async def get_pdf(request: PDFRequest):
 class SuggestionsRequest(BaseModel):
     national_id: str
 
-@app.post("/api/suggestions")
+@app.post(
+    "/api/suggestions",
+    responses={
+        400: {"model": ErrorResponse, "description": "Invalid national ID"},
+        500: {"model": ErrorResponse, "description": "Internal server error"}
+    },
+    tags=["Suggestions"],
+    summary="Get policy suggestions",
+    description="Get personalized policy suggestions based on the user's national ID."
+)
 async def get_suggestions(request: SuggestionsRequest):
     if not qa_system:
         print("QA system not initialized")
@@ -545,8 +590,17 @@ def get_topics_for_policy_type(policy_type: str) -> List[str]:
 
 def sort_questions_by_relevance_and_diversity(questions: List[str]) -> List[str]:
     """Sort questions by relevance and ensure diversity in topics."""
+    # Standard questions to use if we don't have enough
+    standard_questions = [
+        "What are my coverage limits for medical services?",
+        "How much is my deductible and how does it work?",
+        "Which healthcare providers are in my network?",
+        "What is the claims submission process?",
+        "What are my prescription drug benefits?"
+    ]
+    
     if not questions:
-        return []
+        return standard_questions
         
     # Define categories and their priority weights
     categories = {
@@ -589,14 +643,39 @@ def sort_questions_by_relevance_and_diversity(questions: List[str]) -> List[str]
     # Sort by score and ensure diversity
     sorted_questions = sorted(scored_questions, key=lambda x: x[1], reverse=True)
     
-    # Extract just the questions, scores are no longer needed
-    return [q[0] for q in sorted_questions]
+    # Get unique questions while preserving order
+    seen = set()
+    unique_questions = []
+    for q, _ in sorted_questions:
+        q_lower = q.lower()
+        if q_lower not in seen:
+            seen.add(q_lower)
+            unique_questions.append(q)
+    
+    # If we have less than 5 questions, add from standard questions
+    while len(unique_questions) < 5:
+        for q in standard_questions:
+            if q.lower() not in seen and len(unique_questions) < 5:
+                seen.add(q.lower())
+                unique_questions.append(q)
+    
+    # Return exactly 5 questions
+    return unique_questions[:5]
 
 # Add test endpoint for family members before static files
 class FamilyTestRequest(BaseModel):
     national_id: str
 
-@app.post("/api/test-family")
+@app.post(
+    "/api/test-family",
+    responses={
+        400: {"model": ErrorResponse, "description": "Invalid national ID"},
+        500: {"model": ErrorResponse, "description": "Internal server error"}
+    },
+    tags=["Family"],
+    summary="Test family member coverage",
+    description="Check insurance coverage for family members associated with the provided national ID."
+)
 async def test_family_members(request: FamilyTestRequest):
     """Test endpoint to check family member data directly"""
     if not qa_system:

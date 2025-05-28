@@ -250,7 +250,7 @@ class QwenModelWrapper(BaseChatModel):
             messages = [
                 {
                     "role": "system", 
-                    "content": "You are an expert insurance policy analyst. Provide clear, direct, and accurate answers based solely on the policy documents. Use **bold** for important amounts and percentages. Be concise and specific."
+                    "content": "You are a helpful insurance policy assistant. Explain insurance and medical terms in simple language that anyone can understand. Be clear, direct, and focused on helping users understand their coverage. Use **bold** for important amounts and percentages."
                 },
                 {
                     "role": "user", 
@@ -756,7 +756,7 @@ class DocumentQASystem:
     def _create_search_agent(self):
         """Create the search agent with specialized prompt"""
         prompt = ChatPromptTemplate.from_messages([
-            ("system", """You are an expert insurance document researcher. 
+            ("system", """You are a helpful insurance document researcher who explains things in simple terms. 
             Your task is to find relevant policy information using these tools: {tools}
             
             Available tools: {tool_names}
@@ -804,8 +804,8 @@ class DocumentQASystem:
             Available tools: {tools}
             
             Guidelines:
-            1. Be precise with numbers and conditions
-            2. Include all relevant limitations
+            1. Be precise with numbers and conditions but explain them clearly
+            2. Include all relevant limitations and explain what they mean in simple terms
             3. Cite source documents
             4. Only use information from the provided documents
             5. Say if information is not available
@@ -2687,8 +2687,28 @@ Generate exactly 5 questions:"""
             questions = []
             for line in response.split('\n'):
                 line = line.strip()
-                # Remove numbering and clean up
+                
+                # Remove numbering (1., 2., 1), 2), etc.)
                 line = re.sub(r'^\d+[\)\.]\s*', '', line)
+                
+                # Remove markdown headers (###, ####, etc.)
+                line = re.sub(r'^#+\s*', '', line)
+                
+                # Remove "Question" prefixes (Question 1:, Question #1:, etc.)
+                line = re.sub(r'^Question\s*(#?\d+)?\s*:?\s*', '', line, flags=re.IGNORECASE)
+                
+                # Remove "Query" prefixes
+                line = re.sub(r'^Query\s*:?\s*', '', line, flags=re.IGNORECASE)
+                
+                # Remove any remaining special characters at the beginning
+                line = re.sub(r'^[#*\-•\[\]]+\s*', '', line)
+                
+                # Remove brackets and their contents at the beginning (like [HEALTH], [VIP], etc.)
+                line = re.sub(r'^\[.*?\]\s*', '', line)
+                
+                # Remove any remaining leading/trailing whitespace
+                line = line.strip()
+                
                 # Only add if it's a valid question
                 if line and line.endswith('?') and len(line.split()) > 3:  # Ensure minimum question length
                     questions.append(line)
@@ -3657,13 +3677,15 @@ POLICY INFORMATION:
 QUESTION: {question}
 
 INSTRUCTIONS:
+- Remember that the user may not be an insurance or medical expert
 - Provide a direct, specific answer based only on the policy information above
 - Use **bold** formatting for important amounts (e.g., **QR 5,000**)
 - Use **bold** formatting for percentages (e.g., **20%**)
-- If coverage exists, clearly state what is covered
-- If there are limitations, clearly mention them
+- If coverage exists, clearly state what is covered in simple terms
+- If there are limitations, explain them in easy-to-understand language
 - If information is not available in the policies, state that clearly
-- Be concise but complete
+- Be concise but complete and helpful
+- Be focused and avoid unnecessary technical jargon
 
 ANSWER:"""
 
@@ -3715,25 +3737,64 @@ ANSWER:"""
         Generate intelligent follow-up questions
         """
         try:
-            # Simple rule-based follow-up generation
+            # Initialize with standard follow-up questions
+            standard_questions = [
+                "What are the specific limitations for this coverage?",
+                "What is the annual limit for this benefit?",
+                "How does the deductible apply to this coverage?",
+                "Which providers are in the network for this coverage?",
+                "What is the pre-approval process for this treatment?"
+            ]
+            
             follow_ups = []
             
+            # Add context-specific questions based on response content
             if "covered" in response.lower():
                 follow_ups.append("What are the specific limitations for this coverage?")
                 follow_ups.append("What is the annual limit for this benefit?")
             
             if "deductible" in response.lower():
                 follow_ups.append("How does the deductible apply to this coverage?")
+                follow_ups.append("What expenses count towards my deductible?")
             
             if "network" in response.lower():
                 follow_ups.append("Which providers are in the network for this coverage?")
+                follow_ups.append("What are the out-of-network coverage rates?")
             
             if "pre-approval" in response.lower():
                 follow_ups.append("What is the pre-approval process for this treatment?")
+                follow_ups.append("How long does pre-approval typically take?")
             
-            return follow_ups[:3]  # Return top 3
+            if "cost" in response.lower() or "payment" in response.lower():
+                follow_ups.append("Are there any copayments for this service?")
+                follow_ups.append("What is my out-of-pocket maximum?")
             
+            # Remove duplicates while preserving order
+            seen = set()
+            unique_follow_ups = []
+            for q in follow_ups:
+                if q.lower() not in seen:
+                    seen.add(q.lower())
+                    unique_follow_ups.append(q)
+            
+            # If we have less than 5 questions, add from standard questions
+            while len(unique_follow_ups) < 5:
+                for q in standard_questions:
+                    if q.lower() not in seen and len(unique_follow_ups) < 5:
+                        seen.add(q.lower())
+                        unique_follow_ups.append(q)
+            
+            # Return exactly 5 questions
+            return unique_follow_ups[:5]
+                
         except Exception as e:
             print(f"Error generating follow-up questions: {str(e)}")
-            return []
+            # Return 5 standard questions as fallback
+            return [
+                "What are the coverage limits for this benefit?",
+                "Are there any deductibles that apply?",
+                "What providers are in the network?",
+                "Is pre-approval required for this service?",
+                "What are my out-of-pocket costs?"
+            ]
 

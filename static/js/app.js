@@ -133,12 +133,17 @@ class InsuranceAssistant {
         // Check if ID has changed
         if (this.currentNationalId !== value) {
             this.isNationalIdConfirmed = false;
+            
+            // Clear all results including response container
+            this.clearResults(false, '', true);
+            
             // Reset policy document view to default state
             if (this.pdfPlaceholder) {
                 this.pdfPlaceholder.classList.remove('hidden');
                 this.pdfPlaceholder.innerHTML = `
                     <div class="pdf-placeholder-icon">📄</div>
                     <div class="pdf-placeholder-text">
+                        <strong>Policy Document</strong><br>
                         Enter your National ID to view your policy documents
                     </div>
                 `;
@@ -273,7 +278,7 @@ class InsuranceAssistant {
         }
 
         try {
-            this.showLoading(true);
+            this.showNationalIdLoading(true);
             console.log('Fetching suggestions...');
             const suggestions = await this.getSuggestedQuestions(nationalId);
             console.log('Received suggestions:', suggestions);
@@ -321,7 +326,7 @@ class InsuranceAssistant {
             console.error('Error getting suggestions:', error);
             this.clearResults(true, error.message);
         } finally {
-            this.showLoading(false);
+            this.showNationalIdLoading(false);
         }
     }
 
@@ -575,17 +580,53 @@ class InsuranceAssistant {
     }
 
     showLoading(show) {
+        // Show response container during loading, but only show the loading indicator
+        const responseContainer = document.querySelector('.response-container');
+        if (responseContainer && show) {
+            console.log('Showing response container for loading');
+            responseContainer.classList.remove('hidden');
+            responseContainer.classList.add('show');
+        }
+        
         this.loadingIndicator.classList.toggle('hidden', !show);
         this.responseContent.classList.toggle('hidden', show);
         this.submitBtn.disabled = show;
     }
 
+    // Separate loading method for National ID processing that doesn't show response container
+    showNationalIdLoading(show) {
+        // Only disable submit button, don't show response container
+        this.submitBtn.disabled = show;
+        
+        // You could add a separate loading indicator here if needed
+        // For now, just disable the button to indicate processing
+    }
+
     displayResponse(response) {
-        if (!response) return; // If queryAPI returned null (e.g., content blocked), do nothing
+        if (!response) {
+            // If no response (e.g., content blocked), hide the response container
+            const responseContainer = document.querySelector('.response-container');
+            if (responseContainer) {
+                console.log('No response received, hiding response container');
+                responseContainer.classList.remove('show');
+                responseContainer.classList.add('hidden');
+            }
+            return;
+        }
 
         if (!this.answerSection) {
             console.error('Answer section element not found in displayResponse');
             return;
+        }
+
+        // Show the response container
+        const responseContainer = document.querySelector('.response-container');
+        if (responseContainer) {
+            console.log('Response container found, showing it');
+            responseContainer.classList.remove('hidden');
+            responseContainer.classList.add('show');
+        } else {
+            console.error('Response container not found!');
         }
 
         let htmlToDisplay = '';
@@ -617,6 +658,7 @@ class InsuranceAssistant {
             htmlToDisplay += '<div class="error-message">No answer received</div>';
         }
         
+        console.log('Setting answer section innerHTML, length:', htmlToDisplay.length);
         this.answerSection.innerHTML = htmlToDisplay;
 
         // Handle PDF display - only load if not already loaded or if it's a different PDF
@@ -711,6 +753,16 @@ class InsuranceAssistant {
     showError(message) {
         console.log('showError starting, message:', message);
         console.log('answerSection exists:', !!this.answerSection);
+        
+        // Show the response container
+        const responseContainer = document.querySelector('.response-container');
+        if (responseContainer) {
+            console.log('Response container found in showError, showing it');
+            responseContainer.classList.remove('hidden');
+            responseContainer.classList.add('show');
+        } else {
+            console.error('Response container not found in showError!');
+        }
         
         if (!this.answerSection) {
             console.warn('Answer section missing in showError, attempting to find it');
@@ -975,81 +1027,184 @@ class InsuranceAssistant {
         if (totalMembersElement) totalMembersElement.textContent = familyData.total_members.toString();
         if (activePoliciesElement) activePoliciesElement.textContent = '1'; // We know there's at least 1 policy
 
-        // Hide empty state and show grid
+        // Hide empty state and show tree
         if (familyEmpty) familyEmpty.classList.add('hidden');
         if (familyGrid) {
             familyGrid.classList.remove('hidden');
-            familyGrid.innerHTML = ''; // Clear existing content
+            
+            // Clear existing content completely
+            familyGrid.innerHTML = '';
+            
+            // Remove any existing CSS classes that might interfere
+            familyGrid.className = 'family-grid';
+            
+            // Set inline styles to ensure proper layout
+            familyGrid.style.cssText = `
+                display: flex;
+                justify-content: center;
+                align-items: flex-start;
+                margin-top: 1.5rem;
+                padding: 2rem;
+                min-height: 400px;
+                width: 100%;
+            `;
 
-            familyData.members.forEach(member => {
-                const memberCard = this.createFamilyMemberCard(member);
-                familyGrid.appendChild(memberCard);
-            });
+            console.log('Creating family tree with members:', familyData.members);
+            
+            // Create family tree structure
+            const familyTree = this.createFamilyTree(familyData.members);
+            familyGrid.appendChild(familyTree);
+            
+            console.log('Family tree appended to grid. Grid contents:', familyGrid.innerHTML);
         }
     }
 
-    createFamilyMemberCard(member) {
-        // Implementation of createFamilyMemberCard method
-        // This method should return a DOM element representing a family member card
-        // For example, you can create a div element with appropriate classes and structure
-        // based on the member data
-        const card = document.createElement('div');
-        card.className = 'family-card';
+    createFamilyTree(members) {
+        console.log('createFamilyTree called with members:', members);
         
-        // Create member avatar with initials
+        // Organize members by relation
+        const principal = members.find(m => m.relation === 'PRINCIPAL' || m.relation_order === 3);
+        const spouse = members.find(m => m.relation === 'SPOUSE' || m.relation_order === 1);
+        const children = members.filter(m => m.relation === 'CHILD' || m.relation_order === 2);
+
+        console.log('Organized members:', {
+            principal: principal,
+            spouse: spouse,
+            children: children
+        });
+
+        // Create main tree container
+        const treeContainer = document.createElement('div');
+        treeContainer.className = 'family-tree';
+
+        // Create parent level container (for principal and spouse)
+        const parentLevel = document.createElement('div');
+        parentLevel.style.cssText = 
+            'display: flex;' +
+            'justify-content: center;' +
+            'align-items: center;' +
+            'gap: 4rem;' +
+            'position: relative;' +
+            'width: 100%;';
+
+        // Add principal and spouse nodes
+        if (principal) {
+            const principalNode = this.createSimpleTreeNode(principal, 'PRINCIPAL');
+            parentLevel.appendChild(principalNode);
+        }
+
+        if (spouse) {
+            const spouseNode = this.createSimpleTreeNode(spouse, 'SPOUSE');
+            parentLevel.appendChild(spouseNode);
+        }
+
+        // Add horizontal line between spouses if both exist
+        if (principal && spouse) {
+            const spouseConnection = document.createElement('div');
+            spouseConnection.className = 'tree-connection horizontal spouse-line';
+            spouseConnection.style.cssText = 
+                'position: absolute;' +
+                'top: 50%;' +
+                'left: 50%;' +
+                'transform: translate(-50%, -50%);' +
+                'width: 80px;' +
+                'height: 2px;' +
+                'background: linear-gradient(90deg, #c2e3da, #9dd4b8);' +
+                'z-index: 1;';
+            parentLevel.appendChild(spouseConnection);
+        }
+
+        treeContainer.appendChild(parentLevel);
+
+        // Add children section if there are children
+        if (children.length > 0) {
+            // Add vertical line from parents to children
+            const verticalLine = document.createElement('div');
+            verticalLine.style.cssText = 
+                'width: 2px;' +
+                'height: 40px;' +
+                'background: linear-gradient(180deg, #c2e3da, #9dd4b8);' +
+                'margin: 0 auto;';
+            treeContainer.appendChild(verticalLine);
+
+            // Create children level container with appropriate class based on number of children
+            const childrenLevel = document.createElement('div');
+            childrenLevel.className = 'children-level';
+            
+            // Add additional class based on number of children
+            if (children.length === 1) {
+                childrenLevel.classList.add('single-child');
+            } else if (children.length <= 3) {
+                childrenLevel.classList.add('single-row');
+            }
+
+            // Add child nodes in a grid layout
+            children.forEach((child) => {
+                const childNode = this.createSimpleTreeNode(child, 'CHILD');
+                
+                // Add vertical line above each child
+                const childContainer = document.createElement('div');
+                childContainer.style.cssText = 
+                    'display: flex;' +
+                    'flex-direction: column;' +
+                    'align-items: center;';
+                
+                const childLine = document.createElement('div');
+                childLine.style.cssText = 
+                    'width: 2px;' +
+                    'height: 20px;' +
+                    'background: linear-gradient(180deg, #c2e3da, #9dd4b8);' +
+                    'margin-bottom: 0.5rem;';
+                
+                childContainer.appendChild(childLine);
+                childContainer.appendChild(childNode);
+                childrenLevel.appendChild(childContainer);
+            });
+
+            treeContainer.appendChild(childrenLevel);
+        }
+
+        console.log('Tree container created:', treeContainer);
+        return treeContainer;
+    }
+
+    createSimpleTreeNode(member, nodeType) {
+        console.log(`Creating simple tree node for ${member.name} as ${nodeType}`);
+        
+        const node = document.createElement('div');
+        node.className = 'family-tree-node';
+        node.setAttribute('data-relation', nodeType);
+        
         const initials = this.getInitials(member.name);
-        
-        // Determine relation icon
         const relationIcon = this.getRelationIcon(member.relation);
         
-        card.innerHTML = `
-            <div class="member-avatar">${initials}</div>
-            <div class="member-details">
-                <div class="member-name">${this.escapeHtml(member.name)}</div>
-                <div class="member-relation">${relationIcon} ${this.escapeHtml(member.relation)}</div>
-                <div class="member-info-grid">
-                    <div class="info-item">
-                        <div class="info-label">National ID</div>
-                        <div class="info-value">${this.escapeHtml(member.national_id || 'N/A')}</div>
-                    </div>
-                    <div class="info-item">
-                        <div class="info-label">Date of Birth</div>
-                        <div class="info-value">${this.formatDate(member.date_of_birth)}</div>
-                    </div>
-                    <div class="info-item">
-                        <div class="info-label">Policy No.</div>
-                        <div class="info-value">${this.escapeHtml(member.policy_number || 'N/A')}</div>
-                    </div>
-                    <div class="info-item">
-                        <div class="info-label">Company</div>
-                        <div class="info-value">${this.escapeHtml(member.company_name || 'N/A')}</div>
-                    </div>
-                    <div class="info-item">
-                        <div class="info-label">Start Date</div>
-                        <div class="info-value">${this.formatDate(member.start_date)}</div>
-                    </div>
-                    <div class="info-item">
-                        <div class="info-label">End Date</div>
-                        <div class="info-value">${this.formatDate(member.end_date)}</div>
-                    </div>
-                    <div class="info-item">
-                        <div class="info-label">Annual Limit</div>
-                        <div class="info-value">${this.escapeHtml(member.annual_limit || 'N/A')}</div>
-                    </div>
-                    <div class="info-item">
-                        <div class="info-label">Coverage Area</div>
-                        <div class="info-value">${this.escapeHtml(member.area_of_cover || 'N/A')}</div>
+        node.innerHTML = `
+            <div class="family-tree-node-content">
+                <div class="family-tree-node-initials">${initials}</div>
+                <div class="family-tree-node-name">${this.escapeHtml(member.name)}</div>
+                <div class="family-tree-node-relation">${relationIcon} ${this.escapeHtml(nodeType)}</div>
+                <div class="family-tree-node-details">
+                    ${member.national_id ? `
+                        <div class="family-tree-node-detail">
+                            <span class="family-tree-node-detail-label">ID</span>
+                            <span class="family-tree-node-detail-value">${this.escapeHtml(member.national_id)}</span>
+                        </div>
+                    ` : ''}
+                    <div class="family-tree-node-detail">
+                        <span class="family-tree-node-detail-label">DOB</span>
+                        <span class="family-tree-node-detail-value">${this.formatDate(member.date_of_birth)}</span>
                     </div>
                 </div>
             </div>
         `;
 
         // Add click event to show member's policy details
-        card.addEventListener('click', () => {
+        node.addEventListener('click', () => {
             this.showMemberPolicyDetails(member);
         });
 
-        return card;
+        console.log(`Created node for ${member.name}`);
+        return node;
     }
 
     getInitials(name) {
@@ -1195,6 +1350,14 @@ class InsuranceAssistant {
     }
 
     clearResults(showError = false, errorMessage = '', showDefault = false) {
+        // Hide response container
+        const responseContainer = document.querySelector('.response-container');
+        if (responseContainer) {
+            console.log('Hiding response container in clearResults');
+            responseContainer.classList.remove('show');
+            responseContainer.classList.add('hidden');
+        }
+
         // Hide suggestions
         if (this.suggestedQuestions) {
             this.suggestedQuestions.classList.add('hidden');
@@ -1255,6 +1418,16 @@ class InsuranceAssistant {
     showContentWarning(message, suggestion, isBlocked = false) {
         if (!this.answerSection) {
             this.createResponseStructure(); // Ensure response area exists
+        }
+        
+        // Show the response container
+        const responseContainer = document.querySelector('.response-container');
+        if (responseContainer) {
+            console.log('Response container found in showContentWarning, showing it');
+            responseContainer.classList.remove('hidden');
+            responseContainer.classList.add('show');
+        } else {
+            console.error('Response container not found in showContentWarning!');
         }
         
         let warningHtml = `

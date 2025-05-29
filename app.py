@@ -227,7 +227,8 @@ async def get_pdf(request: PDFRequest):
         ssl_context.check_hostname = False
         ssl_context.verify_mode = ssl.CERT_NONE
         
-        connector = aiohttp.TCPConnector(ssl=ssl_context)
+        # Create connector and session within the request for better isolation
+        connector = aiohttp.TCPConnector(ssl=ssl_context, force_close=True)
         
         async with aiohttp.ClientSession(connector=connector) as session:
             try:
@@ -258,7 +259,7 @@ async def get_pdf(request: PDFRequest):
                     pdf_content = await response.read()
                     if not pdf_content:
                         raise HTTPException(
-                            status_code=404,
+                            status_code=404, # Or perhaps 500 if content is expected but empty
                             detail="The PDF document appears to be empty"
                         )
                         
@@ -272,17 +273,20 @@ async def get_pdf(request: PDFRequest):
                     )
                     
             except aiohttp.ClientError as e:
+                # General client error (includes connection issues, SSL errors before response, etc.)
+                print(f"AIOHTTP ClientError accessing PDF {request.pdf_link}: {str(e)}")
                 raise HTTPException(
-                    status_code=404,
-                    detail=f"Failed to access PDF document: {str(e)}"
+                    status_code=502, # 502 Bad Gateway is often more appropriate for upstream errors
+                    detail=f"Failed to access PDF document: An external error occurred."
                 )
                 
-    except HTTPException:
+    except HTTPException: # Re-raise HTTPExceptions directly
         raise
     except Exception as e:
+        print(f"Unexpected error accessing PDF {request.pdf_link}: {str(e)}")
         raise HTTPException(
             status_code=500,
-            detail=f"An unexpected error occurred while accessing the PDF document: {str(e)}"
+            detail=f"An unexpected error occurred while accessing the PDF document."
         )
 
 # Add this new route to your existing FastAPI app

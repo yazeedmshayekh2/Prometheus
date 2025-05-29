@@ -196,7 +196,7 @@ class QwenModelWrapper(BaseChatModel):
     """Wrapper for Qwen2.5-7B-Instruct-AWQ model with optimized performance"""
     model: Any = Field(default=None, description="Qwen Model")
     tokenizer: Any = Field(default=None, description="Tokenizer")
-    model_id: str = Field(default="Qwen/Qwen2.5-7B-Instruct-AWQ", description="Model ID")
+    model_id: str = Field(default="Qwen/Qwen3-8B-AWQ", description="Model ID")
     device: str = Field(default="cuda" if torch.cuda.is_available() else "cpu", description="Device to run model on")
     
     class Config:
@@ -206,7 +206,7 @@ class QwenModelWrapper(BaseChatModel):
         """Initialize the Qwen model with AWQ quantization for optimal performance"""
         super().__init__(**kwargs)
         if self.model is None or self.tokenizer is None:
-            print(f"Loading Qwen2.5-7B-Instruct-AWQ model: {self.model_id}")
+            print(f"Loading Qwen3-8B-AWQ model: {self.model_id}")
             try:
                 # Verify CUDA availability - AWQ requires CUDA
                 if not torch.cuda.is_available():
@@ -237,20 +237,20 @@ class QwenModelWrapper(BaseChatModel):
                 
                 # Set to eval mode for inference
                 self.model.eval()
-                print(f"Qwen2.5-7B-Instruct-AWQ model loaded successfully on CUDA")
+                print(f"Qwen3-8B-AWQ model loaded successfully on CUDA")
                 
             except Exception as e:
                 print(f"Error loading Qwen model: {str(e)}")
                 raise
 
-    def _generate_text(self, prompt: str, max_tokens: int = 500, temperature: float = 0.3) -> str:
+    def _generate_text(self, prompt: str, max_tokens: int = 32768, temperature: float = 0.3) -> str:
         """Generate text with optimized Qwen2.5 performance"""
         try:
             # Create system message for insurance expertise
             messages = [
                 {
                     "role": "system", 
-                    "content": "You are a helpful insurance policy assistant. Explain insurance and medical terms in simple language that anyone can understand. Be clear, direct, and focused on helping users understand their coverage. Use **bold** for important amounts and percentages."
+                    "content": "You are an expert insurance policy analyst. Provide clear, direct, and accurate answers based solely on the policy documents. Pay close attention to the differences between inpatient and outpatient services. Use **bold** for important amounts and percentages. Be concise and specific."
                 },
                 {
                     "role": "user", 
@@ -262,21 +262,24 @@ class QwenModelWrapper(BaseChatModel):
             text = self.tokenizer.apply_chat_template(
                 messages,
                 tokenize=False,
-                add_generation_prompt=True
+                add_generation_prompt=True,
+                enable_thinking=False  # Disable thinking mode
             )
             
             # Tokenize
             model_inputs = self.tokenizer([text], return_tensors="pt").to(self.model.device)
             
-            # Generate with optimized parameters
+            # Generate with optimized parameters for non-thinking mode
             with torch.no_grad():
                 generated_ids = self.model.generate(
                     **model_inputs,
                     max_new_tokens=max_tokens,
-                    temperature=temperature,
-                    top_p=0.9,
+                    temperature=0.7,  # Adjusted for non-thinking mode
+                    top_p=0.8,        # Adjusted for non-thinking mode
+                    top_k=20,         # Recommended for non-thinking mode
+                    min_p=0,          # Recommended for non-thinking mode
                     do_sample=True,
-                    repetition_penalty=1.1,
+                    repetition_penalty=1.1, # Can be adjusted, 1.5 recommended for quantized models if repetition is an issue
                     pad_token_id=self.tokenizer.pad_token_id,
                     eos_token_id=self.tokenizer.eos_token_id,
                     use_cache=True
@@ -310,7 +313,7 @@ class QwenModelWrapper(BaseChatModel):
             # Generate response
             response_text = self._generate_text(
                 combined_input, 
-                max_tokens=kwargs.get("max_tokens", 500),
+                max_tokens=kwargs.get("max_tokens", 32768),
                 temperature=kwargs.get("temperature", 0.3)
             )
             
@@ -346,7 +349,7 @@ class QwenModelWrapper(BaseChatModel):
     @property
     def _identifying_params(self) -> Dict[str, Any]:
         """Get identifying parameters."""
-        return {"model_type": "qwen2.5"}
+        return {"model_type": "qwen3"}
 
 
 class QueryResponse(BaseModel):
@@ -1447,14 +1450,14 @@ Please give a short succinct context to situate this chunk within the overall do
             # Fallback to basic splitting if Chonkie fails
             return super()._split_text(text)
 
-    def _generate_text(self, prompt: str, max_tokens: int = 500, temperature: float = 0.3) -> str:
+    def _generate_text(self, prompt: str, max_tokens: int = 32768, temperature: float = 0.3) -> str:
         """Generate text with optimized Qwen2.5 performance"""
         try:
             # Create system message for insurance expertise
             messages = [
                 {
                     "role": "system", 
-                    "content": "You are an expert insurance policy analyst. Provide clear, direct, and accurate answers based solely on the policy documents. Use **bold** for important amounts and percentages. Be concise and specific."
+                    "content": "You are an expert insurance policy analyst. Provide clear, direct, and accurate answers based solely on the policy documents. Pay close attention to the differences between inpatient and outpatient services. Use **bold** for important amounts and percentages. Be concise and specific."
                 },
                 {
                     "role": "user", 
@@ -1466,21 +1469,24 @@ Please give a short succinct context to situate this chunk within the overall do
             text = self.tokenizer.apply_chat_template(
                 messages,
                 tokenize=False,
-                add_generation_prompt=True
+                add_generation_prompt=True,
+                enable_thinking=False  # Disable thinking mode
             )
             
             # Tokenize
             model_inputs = self.tokenizer([text], return_tensors="pt").to(self.model.device)
             
-            # Generate with optimized parameters
+            # Generate with optimized parameters for non-thinking mode
             with torch.no_grad():
                 generated_ids = self.model.generate(
                     **model_inputs,
                     max_new_tokens=max_tokens,
-                    temperature=temperature,
-                    top_p=0.9,
+                    temperature=0.7,  # Adjusted for non-thinking mode
+                    top_p=0.8,        # Adjusted for non-thinking mode
+                    top_k=20,         # Recommended for non-thinking mode
+                    min_p=0,          # Recommended for non-thinking mode
                     do_sample=True,
-                    repetition_penalty=1.1,
+                    repetition_penalty=1.1, # Can be adjusted, 1.5 recommended for quantized models if repetition is an issue
                     pad_token_id=self.tokenizer.pad_token_id,
                     eos_token_id=self.tokenizer.eos_token_id,
                     use_cache=True
@@ -3679,6 +3685,7 @@ QUESTION: {question}
 INSTRUCTIONS:
 - Remember that the user may not be an insurance or medical expert
 - Provide a direct, specific answer based only on the policy information above
+- Pay close attention to the differences between inpatient and outpatient services when formulating the answer.
 - Use **bold** formatting for important amounts (e.g., **QR 5,000**)
 - Use **bold** formatting for percentages (e.g., **20%**)
 - If coverage exists, clearly state what is covered in simple terms

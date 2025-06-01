@@ -36,3 +36,5 @@ indices/
 # OS
 .DS_Store
 Thumbs.db
+
+*.mdc

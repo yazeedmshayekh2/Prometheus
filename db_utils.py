@@ -63,6 +63,8 @@ class DatabaseConnection:
         try:
             with pyodbc.connect(self.connection_string) as conn:
                 query = """
+                DECLARE @PrincipalNationalID NVARCHAR(50) = ? -- Replace with the principal's national ID
+
                 SELECT
                     c.CompanyName,
                     p.Relation,
@@ -84,21 +86,32 @@ class DatabaseConnection:
                     p.Benefits,
                     p.StartDate AS PolicyStartDate,
                     p.StaffNo
-                FROM 
+                FROM
                     tblHPolicies p
-                INNER JOIN 
-                    tblHContracts c 
-                ON 
+                INNER JOIN
+                    tblHContracts c
+                ON
                     p.ContractID = c.ID
-                WHERE 
-                    c.isDeleted = 0 
+                WHERE
+                    c.isDeleted = 0
                     AND c.EndDate > GETDATE()
                     AND (
-                        p.NationalID = ?
-                        OR ParentID = (SELECT ID FROM tblHPolicies WHERE NationalID = ?)
-                    )
+                        p.NationalID = @PrincipalNationalID
+                        OR (p.ParentID = (
+                    SELECT sp.ID
+                    FROM dbo.tblHPolicies sp
+                    inner join tblHContracts sc on sp.ContractID = sc.ID
+                    WHERE sp.NationalID =@PrincipalNationalID and sc.isDeleted = 0
+                )
+                  or
+                      p.ParentID = (
+                    SELECT sp.ParentID
+                    FROM dbo.tblHPolicies sp
+                    inner join tblHContracts sc on sp.ContractID = sc.ID
+                    WHERE sp.NationalID =@PrincipalNationalID and sc.isDeleted = 0
+                )))
                 """
-                return pd.read_sql(query, conn, params=(national_id, national_id))
+                return pd.read_sql(query, conn, params=(national_id))
                 
         except Exception as e:
             print(f"Database error: {str(e)}")
@@ -159,12 +172,21 @@ class DatabaseConnection:
                     END as RelationOrder
                 FROM dbo.tblHPolicies p
                 JOIN dbo.tblHContracts c ON p.ContractID = c.ID
-                WHERE p.ParentID = (
-                    SELECT ID
-                    FROM dbo.tblHPolicies
-                    WHERE NationalID = @PrincipalNationalID
+                WHERE c.isDeleted =0 and
+                    (  p.ParentID = (
+                    SELECT sp.ID
+                    FROM dbo.tblHPolicies sp
+                    inner join tblHContracts sc on sp.ContractID = sc.ID
+                    WHERE sp.NationalID =@PrincipalNationalID and sc.isDeleted = 0
                 )
-                AND c.isDeleted = 0
+                  or
+                      p.ParentID = (
+                    SELECT sp.ParentID
+                    FROM dbo.tblHPolicies sp
+                    inner join tblHContracts sc on sp.ContractID = sc.ID
+                    WHERE sp.NationalID =@PrincipalNationalID and sc.isDeleted = 0
+                ))
+                AND p.isDeleted = 0
                 AND c.EndDate > GETDATE()  -- Only show active contracts
                 ORDER BY
                     RelationOrder,

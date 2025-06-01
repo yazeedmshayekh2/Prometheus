@@ -3507,71 +3507,151 @@ General Insurance Guidelines:
 
     def _multi_stage_search(self, question: str, collections: List[str], top_k: int = 10) -> List[DocumentChunk]:
         """
-        Multi-stage search combining semantic similarity and keyword matching
+        Enhanced multi-stage search combining semantic similarity, keyword matching, and structured data
         """
         try:
             all_chunks = []
             
-            # Stage 1: Semantic search across all user collections
+            # Stage 1: Parallel Search
+            # 1a. Semantic Search
             query_embedding = self.embeddings.embed_query(question)
+            semantic_chunks = []
             
             for collection_name in collections:
                 try:
-                    print(f"Searching collection: {collection_name}")
-                    
-                    # First check collection exists and has points
                     collection_info = self.qdrant_client.get_collection(collection_name)
-                    print(f"Collection {collection_name} has {collection_info.points_count} points")
-                    
                     if collection_info.points_count == 0:
-                        print(f"Collection {collection_name} is empty, skipping")
                         continue
                     
-                    # Search without restrictive score threshold to see all results
                     results = self.qdrant_client.search(
                         collection_name=collection_name,
                         query_vector=query_embedding,
-                        limit=top_k * 2,  # Get more candidates
+                        limit=top_k * 2,
                         with_payload=True,
-                        with_vectors=False
-                        # Removed score_threshold to allow all results through
+                        with_vectors=False,
+                        search_params=SearchParams(
+                            hnsw_ef=128,  # Increased for better recall
+                            exact=False
+                        )
                     )
                     
-                    print(f"Found {len(results)} raw results in {collection_name}")
-                    
-                    for i, result in enumerate(results):
-                        print(f"  Result {i+1}: score={result.score:.4f}")
+                    for result in results:
                         chunk = DocumentChunk(
                             content=result.payload.get('content', ''),
                             context=result.payload.get('context', ''),
                             metadata=result.payload.get('metadata', {}),
                             relevance_score=float(result.score),
                             chunk_id=result.payload.get('chunk_id', ''),
-                            tags=[]
+                            tags=['semantic_match']
                         )
-                        all_chunks.append(chunk)
+                        semantic_chunks.append(chunk)
                         
                 except Exception as e:
-                    print(f"Error searching collection {collection_name}: {str(e)}")
+                    print(f"Error in semantic search for {collection_name}: {str(e)}")
                     continue
             
-            print(f"Total chunks found across all collections: {len(all_chunks)}")
+            # 1b. Keyword Search using BM25
+            keyword_chunks = []
+            if self.bm25 and self.documents:
+                query_terms = question.lower().split()
+                bm25_scores = self.bm25.get_scores(query_terms)
+                top_indices = np.argsort(bm25_scores)[-top_k*2:][::-1]
+                
+                for idx in top_indices:
+                    if bm25_scores[idx] > 0:
+                        chunk = self.chunks[idx]
+                        chunk.relevance_score = float(bm25_scores[idx])
+                        chunk.tags = ['keyword_match']
+                        keyword_chunks.append(chunk)
             
-            # Stage 2: Rerank using cross-encoder for better precision
-            if self.reranker and len(all_chunks) > 1:
-                print("Applying cross-encoder reranking...")
-                reranked_chunks = self._rerank_with_cross_encoder(question, all_chunks)
-                all_chunks = [chunk for chunk, score in reranked_chunks]
+            # Stage 2: Evidence Fusion
+            # Combine results with intelligent weighting
+            combined_chunks = {}
             
-            # Stage 3: Diversify results to avoid redundancy
-            diverse_chunks = self._diversify_results(all_chunks, top_k)
+            # Process semantic matches
+            for chunk in semantic_chunks:
+                chunk_id = chunk.chunk_id
+                if chunk_id not in combined_chunks:
+                    combined_chunks[chunk_id] = chunk
+                else:
+                    combined_chunks[chunk_id].relevance_score = max(
+                        combined_chunks[chunk_id].relevance_score,
+                        chunk.relevance_score
+                    )
+                    combined_chunks[chunk_id].tags.extend(chunk.tags)
             
-            print(f"Multi-stage search found {len(diverse_chunks)} final relevant chunks")
-            return diverse_chunks
+            # Process keyword matches with boost for exact matches
+            for chunk in keyword_chunks:
+                chunk_id = chunk.chunk_id
+                if chunk_id not in combined_chunks:
+                    combined_chunks[chunk_id] = chunk
+                else:
+                    # Boost score if found by both methods
+                    combined_chunks[chunk_id].relevance_score = max(
+                        combined_chunks[chunk_id].relevance_score * 1.2,  # 20% boost
+                        chunk.relevance_score
+                    )
+                    combined_chunks[chunk_id].tags.extend(chunk.tags)
+            
+            all_chunks = list(combined_chunks.values())
+            
+            # Stage 3: Context Enhancement
+            if all_chunks:
+                # Add relationship-based context
+                all_chunks = self._use_chunk_relationships(all_chunks, question)
+                
+                # Stage 4: Reranking with Cross-Encoder
+                if self.reranker and len(all_chunks) > 1:
+                    reranked_chunks = self._rerank_results(
+                        question=question,
+                        chunks=[(chunk, chunk.relevance_score) for chunk in all_chunks],
+                        initial_k=min(150, len(all_chunks)),
+                        final_k=top_k
+                    )
+                    all_chunks = [chunk for chunk, _ in reranked_chunks]
+                
+                # Stage 5: Post-processing
+                # Remove duplicates while preserving order
+                seen = set()
+                unique_chunks = []
+                for chunk in all_chunks:
+                    if chunk.chunk_id not in seen:
+                        seen.add(chunk.chunk_id)
+                        unique_chunks.append(chunk)
+                
+                # Add diversity bonus
+                unique_chunks = self._add_diversity_bonus(unique_chunks)
+                
+                return unique_chunks[:top_k]
+            
+            return []
             
         except Exception as e:
             print(f"Error in multi-stage search: {str(e)}")
             return []
+
+    def _add_diversity_bonus(self, chunks: List[DocumentChunk]) -> List[DocumentChunk]:
+        """Add diversity bonus to chunks from different sections/sources"""
+        seen_sources = set()
+        seen_sections = set()
+        
+        for chunk in chunks:
+            source = chunk.metadata.get('source', '')
+            section = chunk.metadata.get('section', '')
+            
+            # Apply diversity bonus for new sources/sections
+            bonus = 1.0
+            if source and source not in seen_sources:
+                bonus += 0.1
+                seen_sources.add(source)
+            if section and section not in seen_sections:
+                bonus += 0.1
+                seen_sections.add(section)
+                
+            chunk.relevance_score *= bonus
+        
+        # Re-sort after applying bonuses
+        return sorted(chunks, key=lambda x: x.relevance_score, reverse=True)
 
     def _rerank_with_cross_encoder(self, question: str, chunks: List[DocumentChunk]) -> List[Tuple[DocumentChunk, float]]:
         """

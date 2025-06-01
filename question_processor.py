@@ -11,6 +11,9 @@ class QuestionType(Enum):
     COMPARATIVE = "comparative"
     CLARIFICATION = "clarification"
     POLICY_SPECIFIC = "policy_specific"
+    NUMERICAL = "numerical"
+    TEMPORAL = "temporal"
+    COVERAGE = "coverage"
     UNKNOWN = "unknown"
 
 class ProcessedQuestion(BaseModel):
@@ -20,6 +23,9 @@ class ProcessedQuestion(BaseModel):
     confidence_score: float
     context_ids: List[str] = []
     metadata: Dict = {}
+    extracted_entities: Dict[str, str] = {}
+    search_keywords: List[str] = []
+    temporal_context: Optional[str] = None
 
 class AnswerCandidate(BaseModel):
     answer: str
@@ -40,14 +46,24 @@ class QuestionProcessor:
         # Normalize question
         normalized = self._normalize_question(cleaned_question)
         
+        # Extract entities and keywords
+        entities = self._extract_entities(normalized)
+        keywords = self._extract_search_keywords(normalized)
+        
         # Classify question type
         question_type, confidence = self._classify_question_type(normalized)
+        
+        # Extract temporal context if any
+        temporal_context = self._extract_temporal_context(normalized)
         
         return ProcessedQuestion(
             original_question=question,
             normalized_question=normalized,
             question_type=question_type,
-            confidence_score=confidence
+            confidence_score=confidence,
+            extracted_entities=entities,
+            search_keywords=keywords,
+            temporal_context=temporal_context
         )
     
     def _sanitize_input(self, question: str) -> str:
@@ -64,7 +80,90 @@ class QuestionProcessor:
         normalized = re.sub(r'^(can you|could you|please|tell me)\s+', '', normalized)
         normalized = re.sub(r'\?+$', '?', normalized)
         
+        # Standardize common insurance terms
+        replacements = {
+            'copay': 'copayment',
+            'deductible amount': 'deductible',
+            'max': 'maximum',
+            'coverage limit': 'annual limit',
+            'doctor': 'physician'
+        }
+        for old, new in replacements.items():
+            normalized = normalized.replace(old, new)
+        
         return normalized
+    
+    def _extract_entities(self, question: str) -> Dict[str, str]:
+        entities = {}
+        
+        # Extract monetary amounts
+        money_matches = re.findall(r'\$?\d+(?:,\d{3})*(?:\.\d{2})?(?:\s*(?:USD|dollars?))?', question)
+        if money_matches:
+            entities['amount'] = money_matches[0]
+        
+        # Extract percentages
+        percentage_matches = re.findall(r'\d+(?:\.\d+)?%', question)
+        if percentage_matches:
+            entities['percentage'] = percentage_matches[0]
+        
+        # Extract dates
+        date_matches = re.findall(r'\d{4}[-/]\d{2}[-/]\d{2}|\d{2}[-/]\d{2}[-/]\d{4}', question)
+        if date_matches:
+            entities['date'] = date_matches[0]
+        
+        # Extract insurance-specific entities
+        insurance_types = ['medical', 'dental', 'vision', 'life', 'disability']
+        for insurance_type in insurance_types:
+            if insurance_type in question:
+                entities['insurance_type'] = insurance_type
+                break
+        
+        return entities
+    
+    def _extract_search_keywords(self, question: str) -> List[str]:
+        # Define insurance domain-specific stopwords
+        domain_stopwords = {'insurance', 'policy', 'coverage', 'plan', 'tell', 'know', 'about'}
+        
+        # Tokenize and extract significant terms
+        words = question.lower().split()
+        keywords = []
+        
+        for word in words:
+            if (len(word) > 2 and  # Skip very short words
+                word not in domain_stopwords and
+                not word.startswith(('what', 'when', 'where', 'who', 'how', 'can', 'could', 'would', 'will'))):
+                keywords.append(word)
+        
+        # Add multi-word terms
+        text = question.lower()
+        multi_word_terms = [
+            'annual limit', 'out of pocket', 'pre existing condition',
+            'waiting period', 'grace period', 'network provider',
+            'prior authorization', 'preventive care'
+        ]
+        for term in multi_word_terms:
+            if term in text:
+                keywords.append(term)
+        
+        return list(set(keywords))  # Remove duplicates
+    
+    def _extract_temporal_context(self, question: str) -> Optional[str]:
+        # Extract temporal indicators
+        temporal_markers = {
+            'current': 'current',
+            'previous': 'previous',
+            'next': 'future',
+            'future': 'future',
+            'last year': 'previous',
+            'this year': 'current',
+            'next year': 'future'
+        }
+        
+        for marker, context in temporal_markers.items():
+            if marker in question:
+                return context
+        
+        return None
     
     def _classify_question_type(self, question: str) -> Tuple[QuestionType, float]:
         # Define candidate labels for zero-shot classification
@@ -73,7 +172,10 @@ class QuestionProcessor:
             "asking how to do something",
             "comparing two or more things",
             "asking for clarification",
-            "asking about specific policy details"
+            "asking about specific policy details",
+            "asking about amounts or numbers",
+            "asking about dates or time periods",
+            "asking about insurance coverage"
         ]
         
         # Classify using zero-shot classification
@@ -85,12 +187,23 @@ class QuestionProcessor:
             "asking how to do something": QuestionType.PROCEDURAL,
             "comparing two or more things": QuestionType.COMPARATIVE,
             "asking for clarification": QuestionType.CLARIFICATION,
-            "asking about specific policy details": QuestionType.POLICY_SPECIFIC
+            "asking about specific policy details": QuestionType.POLICY_SPECIFIC,
+            "asking about amounts or numbers": QuestionType.NUMERICAL,
+            "asking about dates or time periods": QuestionType.TEMPORAL,
+            "asking about insurance coverage": QuestionType.COVERAGE
         }
         
         best_label_idx = np.argmax(result['scores'])
         confidence = result['scores'][best_label_idx]
         question_type = label_to_type.get(result['labels'][best_label_idx], QuestionType.UNKNOWN)
+        
+        # Override classification based on specific patterns
+        if re.search(r'\d+(?:,\d{3})*(?:\.\d{2})?', question):
+            question_type = QuestionType.NUMERICAL
+        elif re.search(r'(?:date|when|period|duration|time)', question):
+            question_type = QuestionType.TEMPORAL
+        elif re.search(r'(?:cover|covered|coverage|include|included)', question):
+            question_type = QuestionType.COVERAGE
         
         return question_type, confidence
     

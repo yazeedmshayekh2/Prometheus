@@ -186,7 +186,6 @@ class DatabaseConnection:
                     inner join tblHContracts sc on sp.ContractID = sc.ID
                     WHERE sp.NationalID =@PrincipalNationalID and sc.isDeleted = 0
                 ))
-                AND p.isDeleted = 0
                 AND c.EndDate > GETDATE()  -- Only show active contracts
                 ORDER BY
                     RelationOrder,

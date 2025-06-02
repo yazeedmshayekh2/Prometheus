@@ -92,7 +92,37 @@ class InsuranceAssistant {
         
         // Confirm National ID button
         if (this.confirmNationalIdBtn) {
-            this.confirmNationalIdBtn.addEventListener('click', () => this.handleNationalIdConfirm());
+            this.confirmNationalIdBtn.addEventListener('click', async () => {
+                const nationalId = this.nationalIdInput.value.trim();
+                if (nationalId) {
+                    // Display a user-friendly message about what's happening
+                    if (this.nationalIdValidation) {
+                        this.nationalIdValidation.innerHTML = '<span>⏳</span> Verifying ID, please wait...';
+                        // Ensure the message is visible and styled as a progress/neutral message
+                        this.nationalIdValidation.className = 'validation-message progress'; 
+                        this.nationalIdValidation.classList.remove('hidden');
+                    }
+
+                    this.confirmNationalIdBtn.classList.add('loading');
+                    
+                    try {
+                        // The handleNationalIdConfirm function is expected to update 
+                        // this.nationalIdValidation with the final success or error message.
+                        await this.handleNationalIdConfirm();
+                    } catch (error) {
+                        console.error('Error during ID confirmation process:', error);
+                        // Fallback error display in nationalIdValidation if handleNationalIdConfirm fails to update it
+                        if (this.nationalIdValidation) {
+                             this.nationalIdValidation.innerHTML = '<span>❌</span> Failed to confirm ID. Please try again.';
+                             this.nationalIdValidation.className = 'validation-message invalid';
+                             this.nationalIdValidation.classList.remove('hidden'); // Ensure error is visible
+                        }
+                    } finally {
+                        this.confirmNationalIdBtn.classList.remove('loading');
+                        // The nationalIdValidation should now reflect the outcome from handleNationalIdConfirm or the catch block.
+                    }
+                }
+            });
         }
 
         // Question input handlers
@@ -128,6 +158,13 @@ class InsuranceAssistant {
 
         const hasQuestion = this.questionInput && this.questionInput.value.trim().length > 0;
         const canSubmit = this.isNationalIdConfirmed && hasQuestion && !this.isLoading;
+
+        console.log('Updating submit button state:', {
+            hasQuestion,
+            isNationalIdConfirmed: this.isNationalIdConfirmed,
+            isLoading: this.isLoading,
+            canSubmit
+        });
 
         this.submitBtn.disabled = !canSubmit;
         
@@ -206,7 +243,7 @@ class InsuranceAssistant {
             // Exactly 11 digits - show enter button
             this.nationalIdInput.classList.add('valid');
             this.nationalIdValidation.classList.add('valid');
-            this.nationalIdValidation.innerHTML = '<span>✅</span> 11 digits entered. Press Enter to confirm.';
+            this.nationalIdValidation.innerHTML = '<span>✅</span> 11 digits entered. Press Confirm ID  to confirm.';
             this.confirmNationalIdBtn.classList.remove('hidden');
             this.confirmNationalIdBtn.classList.add('pulse');
         } else {
@@ -228,7 +265,7 @@ class InsuranceAssistant {
 
         try {
             // First get suggestions which includes family data
-            const suggestionsResponse = await fetch('/api/suggestions', {
+            const suggestionsResponse = fetch('/api/suggestions', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -236,106 +273,65 @@ class InsuranceAssistant {
                 body: JSON.stringify({
                     national_id: nationalId
                 })
-            });
+            }).then(async (response) => {
+                if (!response.ok) {
+                    throw new Error('Failed to fetch user information');
+                }
 
-            if (!suggestionsResponse.ok) {
-                throw new Error('Failed to fetch user information');
-            }
-
-            const data = await suggestionsResponse.json();
-            console.log('API Response:', data);
-            
-            // Mark as confirmed first
-            this.isNationalIdConfirmed = true;
-            this.currentNationalId = nationalId;
-            
-            // Show success message
-            this.nationalIdValidation.innerHTML = '<span>✅</span> ID confirmed successfully';
-            this.confirmNationalIdBtn.classList.remove('pulse');
-            this.confirmNationalIdBtn.classList.add('hidden');
-
-            // Update button state after confirmation
-            this.updateSubmitButtonState();
-
-            // Update the user info display
-            if (data && data.family_data && data.family_data.members) {
-                const members = data.family_data.members;
-                console.log('Family members:', members);
-
-                // Find the principal member (the one with the ID we entered)
-                const principal = members.find(m => m.national_id === nationalId) || members[0];
+                const data = await response.json();
+                console.log('API Response:', data);
                 
-                if (principal) {
-                    // Update the display with principal's information
-                    this.contractorName.textContent = principal.name || '-';
-                    this.expiryDate.textContent = this.formatDate(principal.end_date) || '-';
-                    this.beneficiaryCount.textContent = data.family_data.total_members.toString() || '-';
+                // Mark as confirmed first
+                this.isNationalIdConfirmed = true;
+                this.currentNationalId = nationalId;
+                
+                // Show success message
+                this.nationalIdValidation.innerHTML = '<span>✅</span> ID confirmed successfully';
+                this.confirmNationalIdBtn.classList.remove('pulse');
+                this.confirmNationalIdBtn.classList.add('hidden');
+
+                // Update button state after confirmation
+                this.updateSubmitButtonState();
+
+                // Update the user info display
+                if (data && data.family_data && data.family_data.members) {
+                    const members = data.family_data.members;
+                    console.log('Family members:', members);
+
+                    // Find the principal member (the one with the ID we entered)
+                    const principal = members.find(m => m.national_id === nationalId) || members[0];
+                    
+                    if (principal) {
+                        // Update the display with principal's information
+                        this.contractorName.textContent = principal.name || '-';
+                        this.expiryDate.textContent = this.formatDate(principal.end_date) || '-';
+                        this.beneficiaryCount.textContent = data.family_data.total_members.toString() || '-';
+                    } else {
+                        this.clearUserInfo();
+                    }
                 } else {
                     this.clearUserInfo();
                 }
-            } else {
-                this.clearUserInfo();
-            }
 
-            // Display suggested questions if available
-            if (data.questions && data.questions.length > 0) {
-                let suggestedQuestionsContainer = document.getElementById('suggestedQuestionsContainer');
-                if (!suggestedQuestionsContainer) {
-                    suggestedQuestionsContainer = document.createElement('div');
-                    suggestedQuestionsContainer.id = 'suggestedQuestionsContainer';
-                    suggestedQuestionsContainer.className = 'suggested-questions-container';
-                    
-                    // Insert after the user info section
-                    const userInfoSection = document.querySelector('.user-info-section');
-                    if (userInfoSection) {
-                        userInfoSection.parentNode.insertBefore(suggestedQuestionsContainer, userInfoSection.nextSibling);
-                    }
+                // Display suggested questions if available
+                if (data.questions && data.questions.length > 0) {
+                    this.displaySuggestedQuestions(data.questions);
                 }
 
-                // Clear previous questions
-                suggestedQuestionsContainer.innerHTML = `
-                    <div class="suggested-questions-header">
-                        <h3>Suggested Questions</h3>
-                        <p>Click on a question to ask it</p>
-                    </div>
-                    <div class="suggested-questions-list"></div>
-                `;
+                // Keep chat container visible
+                const responseContainer = document.querySelector('.response-container');
+                if (responseContainer) {
+                    responseContainer.classList.add('show');
+                    responseContainer.classList.remove('hidden');
+                }
 
-                const questionsList = suggestedQuestionsContainer.querySelector('.suggested-questions-list');
-                
-                // Add each question as a clickable button
-                data.questions.forEach(question => {
-                    // Clean the question text:
-                    // 1. Remove [] brackets and their contents
-                    // 2. Remove "Question #:" prefix
-                    // 3. Remove any markdown formatting
-                    // 4. Remove extra whitespace
-                    let cleanQuestion = question
-                        .replace(/\[\d*\]/g, '') // Remove [1], [2], etc.
-                        .replace(/\*\*Question\s*(?:#?\d+|):\*\*\s*/i, '') // Remove "Question #:" or "Question:"
-                        .replace(/\*\*/g, '') // Remove any remaining **bold** markdown
-                        .replace(/^#+\s*/, '') // Remove markdown headers
-                        .trim(); // Remove extra whitespace
+            }).catch(error => {
+                console.error('Error:', error);
+                this.showError('Failed to verify National ID. Please try again.');
+                this.isNationalIdConfirmed = false;
+                this.clearUserInfo();
+            });
 
-                    const questionButton = document.createElement('button');
-                    questionButton.className = 'suggested-question-btn';
-                    questionButton.textContent = cleanQuestion;
-                    questionButton.addEventListener('click', () => {
-                        if (this.questionInput) {
-                            this.questionInput.value = cleanQuestion;
-                            this.questionInput.focus();
-                        }
-                    });
-                    questionsList.appendChild(questionButton);
-                });
-
-                // Show the container
-                suggestedQuestionsContainer.style.display = 'block';
-            }
-
-            // Enable/disable submit button based on question input
-            this.submitBtn.disabled = !this.questionInput.value.trim();
-            
         } catch (error) {
             console.error('Error:', error);
             this.showError('Failed to verify National ID. Please try again.');
@@ -685,67 +681,63 @@ class InsuranceAssistant {
         console.log('displaySuggestedQuestions starting, answerSection exists:', !!this.answerSection);
         console.log('displaySuggestedQuestions called with:', suggestions);
         
-        // Log element states at start of display
-        console.log('Element states in displaySuggestedQuestions:', {
-            suggestedQuestions: !!this.suggestedQuestions,
-            questionInput: !!this.questionInput,
-            submitBtn: !!this.submitBtn,
-            answerSection: !!this.answerSection
-        });
+        let suggestedQuestionsContainer = document.getElementById('suggestedQuestionsContainer');
+        if (!suggestedQuestionsContainer) {
+            suggestedQuestionsContainer = document.createElement('div');
+            suggestedQuestionsContainer.id = 'suggestedQuestionsContainer';
+            suggestedQuestionsContainer.className = 'suggested-questions-container';
+            
+            // Insert after the user info section
+            const userInfoSection = document.querySelector('.user-info-section');
+            if (userInfoSection) {
+                userInfoSection.parentNode.insertBefore(suggestedQuestionsContainer, userInfoSection.nextSibling);
+            }
+        }
 
-        if (!this.suggestedQuestions) {
-            console.error('Suggested questions container not found');
+        // Clear previous questions
+        suggestedQuestionsContainer.innerHTML = `
+            <div class="suggested-questions-header">
+                <h3>Suggested Questions</h3>
+                <p>Click on a question to ask it</p>
+            </div>
+            <div class="suggested-questions-list"></div>
+        `;
+
+        const questionsList = suggestedQuestionsContainer.querySelector('.suggested-questions-list');
+        
+        if (!suggestions || !suggestions.length) {
+            console.log('No suggestions to display');
+            suggestedQuestionsContainer.style.display = 'none';
             return;
         }
 
-        const bubblesContainer = this.suggestedQuestions.querySelector('.question-bubbles');
-        if (!bubblesContainer) {
-            console.error('Question bubbles container not found');
-            return;
-        }
+        // Add each question as a clickable button
+        suggestions.forEach(question => {
+            // Clean the question text
+            let cleanQuestion = question
+                .replace(/\[\d*\]/g, '') // Remove [1], [2], etc.
+                .replace(/\*\*Question\s*(?:#?\d+|):\*\*\s*/i, '') // Remove "Question #:" or "Question:"
+                .replace(/\*\*/g, '') // Remove any remaining **bold** markdown
+                .replace(/^#+\s*/, '') // Remove markdown headers
+                .trim(); // Remove extra whitespace
 
-        if (!suggestions || !suggestions.questions || suggestions.questions.length === 0) {
-            console.log('No suggestions to display'); // Debug log
-            this.hideSuggestedQuestions();
-            return;
-        }
-
-        bubblesContainer.innerHTML = '';
-
-        suggestions.questions.forEach((question, index) => {
-            console.log(`Creating bubble for question ${index + 1}:`, question); // Debug log
-            const bubble = document.createElement('div');
-            bubble.className = 'question-bubble';
-            // Remove [], the "Question #N:" prefix, any other bold markdown, and "### " prefixes for display
-            bubble.textContent = question.replace(/[\[\]]/g, '')
-                                       .replace(/\*\*Question\s*(#\d+|\d+):\*\*\s*/, '')
-                                       .replace(/\*\*(.*?)\*\*/g, '$1')
-                                       .replace(/^#+\s*/, ''); // Remove one or more "#" followed by space
-            bubble.addEventListener('click', (e) => {
-                e.preventDefault();
-                console.log(`Clicked question ${index + 1}:`, question); // Debug log
-                
-                // Ensure response structure exists
-                if (!this.answerSection) {
-                    this.createResponseStructure();
-                }
-                
+            const questionButton = document.createElement('button');
+            questionButton.className = 'suggested-question-btn';
+            questionButton.textContent = cleanQuestion;
+            questionButton.addEventListener('click', () => {
                 if (this.questionInput) {
-                    // MODIFIED: Apply full cleaning to the question text for the input field
-                    const cleanedQuestionForInput = question.replace(/[\\[\\]]/g, '')
-                                                         .replace(/\*\*Question\s*(#\d+|\d+):\*\*\s*/, '')
-                                                         .replace(/\*\*(.*?)\*\*/g, '$1')
-                                                         .replace(/^#+\s*/, ''); // Remove one or more "#" followed by space
-                    this.questionInput.value = cleanedQuestionForInput;
-                    // MODIFIED: Update button state to enable it if appropriate
-                    this.questionInput.focus(); 
+                    this.questionInput.value = cleanQuestion;
+                    this.questionInput.focus();
+                    // Update submit button state after setting the question
+                    this.updateSubmitButtonState();
                 }
             });
-            bubblesContainer.appendChild(bubble);
+            questionsList.appendChild(questionButton);
         });
 
-        this.suggestedQuestions.classList.remove('hidden');
-        console.log('Suggestions displayed, total bubbles:', bubblesContainer.children.length); // Debug log
+        // Show the container
+        suggestedQuestionsContainer.style.display = 'block';
+        console.log('Suggestions displayed, total buttons:', questionsList.children.length);
     }
 
     hideSuggestedQuestions() {
@@ -1630,12 +1622,11 @@ class InsuranceAssistant {
     }
 
     clearResults(showError = false, errorMessage = '', showDefault = false) {
-        // Hide response container
+        // Never hide response container
         const responseContainer = document.querySelector('.response-container');
         if (responseContainer) {
-            console.log('Hiding response container in clearResults');
-            responseContainer.classList.remove('show');
-            responseContainer.classList.add('hidden');
+            responseContainer.classList.add('show');
+            responseContainer.classList.remove('hidden');
         }
 
         // Hide suggestions
@@ -1649,49 +1640,20 @@ class InsuranceAssistant {
             familyInfoSection.classList.add('hidden');
         }
 
-        // Hide PDF viewer
-        if (this.pdfViewer) {
-            this.pdfViewer.classList.add('hidden');
-        }
-
-        // Clear PDF frame
-        if (this.pdfFrame) {
-            this.pdfFrame.src = '';
-        }
-
-        // Clear or show error/default state in PDF placeholder
-        if (this.pdfPlaceholder) {
-            if (showError) {
-                this.pdfPlaceholder.classList.remove('hidden');
-                this.pdfPlaceholder.innerHTML = `
-                    <div class="pdf-placeholder-icon error">⚠️</div>
-                    <div class="pdf-placeholder-text error">
-                        <strong>Error</strong><br>
-                        ${this.escapeHtml(errorMessage)}
-                    </div>
-                `;
-            } else if (showDefault) {
-                this.pdfPlaceholder.classList.remove('hidden');
-                this.pdfPlaceholder.innerHTML = `
-                    <div class="pdf-placeholder-icon">📄</div>
-                    <div class="pdf-placeholder-text">
-                        <strong>Policy Document</strong><br>
-                        Enter your National ID to view your policy document
-                    </div>
-                `;
-            } else {
-                this.pdfPlaceholder.classList.add('hidden');
+        // Keep chat container visible but clear messages except the welcome message
+        if (this.chatContainer) {
+            const welcomeMessage = this.chatContainer.querySelector('.chat.assistant-message:first-child');
+            if (welcomeMessage) {
+                this.chatContainer.innerHTML = '';
+                this.chatContainer.appendChild(welcomeMessage);
             }
         }
 
-        // Clear answer section
-        if (this.answerSection) {
-            this.answerSection.innerHTML = '';
-        }
-
-        // Reset PDF state
-        this.isPdfLoaded = false;
-        this.currentPdfLink = null;
+        // Reset chat history but keep welcome message
+        this.chatHistory = [];
+        
+        // Update submit button state
+        this.updateSubmitButtonState();
     }
 
     // New method to display content warnings

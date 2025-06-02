@@ -31,14 +31,14 @@
                     <div id="nationalIdValidation" class="validation-message"></div>
                     <button id="confirmNationalId">Confirm ID</button>
                 </div>
-                <div class="response-container">
-                    <div id="loadingIndicator" class="loading-indicator hidden">
-                        <div class="spinner"></div>
-                        <p>Processing your question...</p>
-                    </div>
-                    <div class="container chatcontainer">
-                        <div class="chat">Hi i'am chatbot that can help you with your medical group policy; Please enter your Qatari ID above to start.</div>
-                    </div>
+                <div class="response-container show">
+                    <div class="chatcontainer">
+                        <div class="chat assistant-message">Hi I'm chatbot that can help you with your medical group policy. Please enter your Qatari ID above to start.</div>
+                        <div id="loadingIndicator" class="loading-indicator hidden">
+                            <div class="spinner"></div>
+                            <p>Processing your question...</p>
+                        </div>  
+                    </div>  
                 </div>
                 <div class="textChat">
                     <textarea id="questionInput" placeholder="Ask anything"></textarea>
@@ -49,35 +49,35 @@
                 <!-- User Information Section -->
                 <div class="user-info-section">
                     <div class="row searchresult">
-                        <div class="col-md-4">
+                        <div class="col-md-5">
                             Contractor Name
                         </div>
                         <div class="col-md-1">
                             :
                         </div>
-                        <div class="col-md-7" id="contractorName">
+                        <div class="col-md-6" id="contractorName">
                             -
                         </div>
                     </div>
                     <div class="row searchresult">
-                        <div class="col-md-4">
+                        <div class="col-md-5">
                             Contact Expiry Date
                         </div>
                         <div class="col-md-1">
                             :
                         </div>
-                        <div class="col-md-7" id="expiryDate">
+                        <div class="col-md-6" id="expiryDate">
                             -
                         </div>
                     </div>
                     <div class="row searchresult">
-                        <div class="col-md-4">
+                        <div class="col-md-5">
                             No. Of Benf.
                         </div>
                         <div class="col-md-1">
                             :
                         </div>
-                        <div class="col-md-7" id="beneficiaryCount">
+                        <div class="col-md-6" id="beneficiaryCount">
                             -
                         </div>
                     </div>

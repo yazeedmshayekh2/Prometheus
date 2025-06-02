@@ -1,141 +1,92 @@
-<!DOCTYPE html>
-<html lang="en">
+﻿<!DOCTYPE html>
+<html>
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Doha Insurance Group - Medical Group Policy Assistant</title>
-    <link rel="stylesheet" href="css/styles.css">
+    <meta charset="utf-8" />
+    <title>DIG Chat</title>
+    <link href="Content/css/bootstrap/css/bootstrap.css" rel="stylesheet" />
+    <link href="Content/css/site.css" rel="stylesheet" />
+    <link href="css/style.css" rel="stylesheet" />
+    <script src="Content/css/bootstrap/js/bootstrap.js"></script>
+    <link rel="icon" type="image/x-icon" href="Content/img/dig-sm-logo.png">
 </head>
 <body>
     <div class="container">
-        <header>
-            <img src="imgs/dig-sm-logo.png" alt="Doha Insurance Group Logo" class="logo">
-            <h1>Medical Group Policy Assistant</h1>
-        </header>
-
-        <div class="content">
-<div class="row">
-    <div class="col-12">
-        <div class="chatbot-description">
-            <h4>This is a <span class="highlight">chatbot</span> that can help you with your <span class="highlight">medical group policy</span>. It can answer questions about your policy, and help you find the <span class="highlight">best coverage</span> for your needs.</h4>
-        </div>
-    </div>
-</div>
-
-
-
-
-            <div class="main-layout">
-                <div class="left-section">
-                    <div class="search-container">
-                        <div class="">
-                        <input type="text" 
-                               id="nationalId" 
-                                   placeholder="Enter 11-digit National ID"
-                                   maxlength="11"
-                                   pattern="[0-9]{11}"
-                                   class="input-field national-id-input">
-                            <div id="nationalIdValidation" class="validation-message hidden"></div>
-                            <button id="confirmNationalId" class="confirm-btn hidden">Enter</button>
-                        </div>
-                        
-                        <div id="policiesLoadingIndicator" class="loading-indicator hidden">
-                            <div class="spinner"></div>
-                            <p>Processing user's policies...</p>
-                        </div>
-                        
-                        <!-- Family Information Section - Moved to dedicated area -->
-                        <div id="familyInfoSection" class="family-info-section hidden">
-                            <div class="family-section-header">
-                                <h3 class="section-title">
-                                    <span class="section-icon"></span>
-                                    Family Members
-                                </h3>
-                                <button id="toggleFamily" class="toggle-btn">
-                                    <span class="toggle-icon">▼</span>
-                                </button>
-                            </div>
-                            
-                            <div id="familyContent" class="family-content">
-                                <div class="family-stats">
-                                    <div class="stat-card">
-                                        <div class="stat-value" id="totalMembers">0</div>
-                                        <div class="stat-label">Total Members</div>
-                                    </div>
-                                    <div class="stat-card">
-                                        <div class="stat-value" id="activePolicies">0</div>
-                                        <div class="stat-label">Active Policies</div>
-                                    </div>
-                                </div>
-                                
-                                <div id="familyGrid" class="family-grid">
-                                    <!-- Family member cards will be dynamically inserted here -->
-                                </div>
-                                
-                                <div id="familyEmpty" class="family-empty hidden">
-                                    <div class="empty-icon">👨‍👩‍👧‍👦</div>
-                                    <div class="empty-text">No family members found</div>
-                                </div>
-                            </div>
-                        </div>
-                        
-                        <div id="policyInfo" class="policy-info hidden">
-                            <!-- Removed family section from here -->
-                            <div class="active-policies">
-                                <h3>Active Policies</h3>
-                                <div id="policiesList" class="policies-list"></div>
-                            </div>
-                        </div>
-
-                        <div id="suggestedQuestions" class="suggested-questions hidden">
-                            <h3>Suggested Questions</h3>
-                            <div class="question-bubbles"></div>
-                        </div>
-                        
-                        <textarea id="questionInput" 
-                                  placeholder="Ask a question about your insurance policy..."
-                                  class="input-field"></textarea>
-                        
-                        <button id="submitBtn" class="submit-btn">Ask Question</button>
-                    </div>
-
-                    <div class="response-container hidden">
-                        <div id="loadingIndicator" class="loading-indicator hidden">
-                            <div class="spinner"></div>
-                            <p>Processing user's policies...</p>
-                        </div>
-                        
-                        <div id="responseContent" class="response-content">
-                            <div id="answer" class="answer-section">
-                                <!-- Answers will be inserted here -->
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                
-                <div class="right-section">
-                    <div id="pdfPlaceholder" class="pdf-placeholder">
-                        <div class="pdf-placeholder-icon">📄</div>
-                        <div class="pdf-placeholder-text">
-                            <strong>Policy Document</strong><br>
-                            Enter your National ID to view your policy document
-                        </div>
-                    </div>
-                    
-                    <div id="pdfViewer" class="pdf-viewer-section hidden">
-                        <div class="pdf-header">
-                            <h3>Policy Document</h3>
-                            <span id="pdfCompany" class="pdf-company"></span>
-                        </div>
-                        <iframe id="pdfFrame" class="pdf-frame" title="Policy Document"></iframe>
-                    </div>
+        <!-- Just an image -->
+        <nav class="navbar navbar-light bg-light">
+            <img src="Content/img/dig-sm-logo.png" width="30" height="30" alt="Doha Insurance Group - DIG" title="Doha Insurance Group - DIG" />
+            Medical Group Assistant - DIG
+        </nav>
+        <div class="row">
+            <div class="col-md-12">
+                <div class="alert alert-info">
+                    This is a chatbot that can help you with your medical group policy. It can answer questions about your policy, and help you find the best coverage for your needs.
                 </div>
             </div>
-        </main>
+        </div>
+
+        <div class="row">
+            <div class="col-lg-8 col-md-6 col-sm-12 border-r">
+                <div class="id-input-section">
+                    <input type="text" id="nationalId" placeholder="Enter Qatari ID (11 digits)" maxlength="11" />
+                    <div id="nationalIdValidation" class="validation-message hidden"></div>
+                    <button id="confirmNationalId">Confirm ID</button>
+                </div>
+                <div class="container chatcontainer">
+                    <div class="chat">Hi i'am chatbot that can help you with your medical group policy; Please enter your Qatari ID above to start.</div>
+                </div>
+                <div class="textChat">
+                    <textarea id="questionInput" placeholder="Ask anything"></textarea>
+                    <button id="submitBtn" disabled>Send</button>
+                </div>
+            </div>
+            <div class="col-lg-4 col-md-6 mobile-hiden">
+                <!-- User Information Section -->
+                <div class="user-info-section">
+                    <div class="row searchresult">
+                        <div class="col-md-4">
+                            Contractor Name
+                        </div>
+                        <div class="col-md-1">
+                            :
+                        </div>
+                        <div class="col-md-7" id="contractorName">
+                            -
+                        </div>
+                    </div>
+                    <div class="row searchresult">
+                        <div class="col-md-4">
+                            Contact Expiry Date
+                        </div>
+                        <div class="col-md-1">
+                            :
+                        </div>
+                        <div class="col-md-7" id="expiryDate">
+                            -
+                        </div>
+                    </div>
+                    <div class="row searchresult">
+                        <div class="col-md-4">
+                            No. Of Benf.
+                        </div>
+                        <div class="col-md-1">
+                            :
+                        </div>
+                        <div class="col-md-7" id="beneficiaryCount">
+                            -
+                        </div>
+                    </div>
+                </div>
+                <!-- Suggested Questions Section -->
+                <div id="suggestedQuestionsContainer" class="suggested-questions-container" style="display: none;">
+                    <div class="suggested-questions-header">
+                        <h3>Suggested Questions</h3>
+                        <p>Click on a question to ask it</p>
+                    </div>
+                    <div class="suggested-questions-list"></div>
+                </div>
+            </div>
+        </div>
     </div>
-    <script>
-        console.log('Testing console before app.js loads...');
-    </script>
-    <script src="js/app.js?v=1"></script>
+    <script src="js/app.js"></script>
 </body>
-</html> 
+</html>

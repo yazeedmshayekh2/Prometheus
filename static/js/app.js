@@ -30,6 +30,11 @@ class InsuranceAssistant {
         this.isNationalIdConfirmed = false;
         this.currentNationalId = '';
 
+        // User info elements
+        this.contractorName = document.getElementById('contractorName');
+        this.expiryDate = document.getElementById('expiryDate');
+        this.beneficiaryCount = document.getElementById('beneficiaryCount');
+
         console.log('DOM Elements found:', {
             nationalIdInput: !!this.nationalIdInput,
             nationalIdValidation: !!this.nationalIdValidation,
@@ -133,6 +138,7 @@ class InsuranceAssistant {
         // Check if ID has changed
         if (this.currentNationalId !== value) {
             this.isNationalIdConfirmed = false;
+            this.clearUserInfo();
             
             // Clear all results including response container
             this.clearResults(false, '', true);
@@ -202,63 +208,113 @@ class InsuranceAssistant {
         const nationalId = this.nationalIdInput.value.trim();
         
         if (nationalId.length !== 11) {
-            this.nationalIdValidation.classList.remove('valid', 'progress');
-            this.nationalIdValidation.classList.add('invalid');
-            this.nationalIdValidation.innerHTML = '<span>❌</span> National ID must be exactly 11 digits';
-            this.nationalIdInput.focus();
+            this.showError('Please enter a valid 11-digit National ID.');
             return;
         }
-        
-        // Check if it's the same ID as before
-        if (this.isNationalIdConfirmed && this.currentNationalId === nationalId) {
-            return; // No need to reprocess
-        }
-        
-        // Mark as confirmed
-        this.isNationalIdConfirmed = true;
-        this.currentNationalId = nationalId;
-        
-        // Update UI
-        this.confirmNationalIdBtn.classList.remove('pulse');
-        this.confirmNationalIdBtn.classList.add('hidden');
-        this.nationalIdValidation.classList.remove('valid');
-        this.nationalIdValidation.classList.add('progress');
-        this.nationalIdValidation.innerHTML = '<span>🔄</span> Loading your policies...';
-        
-        // Disable input while processing
-        this.nationalIdInput.disabled = true;
-        
+
         try {
-            await this.handleNationalIdChange();
-            
-            // Success state
-            this.nationalIdValidation.classList.remove('progress');
-            this.nationalIdValidation.classList.add('valid');
-            this.nationalIdValidation.innerHTML = '<span>✅</span> Policies loaded successfully';
-            
-            // Re-enable input
-            this.nationalIdInput.disabled = false;
-            
-            // Update submit button state
-            this.updateSubmitButtonState();
-            
-            // Focus on question input
-            if (this.questionInput) {
-                this.questionInput.focus();
+            // First get suggestions which includes family data
+            const suggestionsResponse = await fetch('/api/suggestions', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    national_id: nationalId
+                })
+            });
+
+            if (!suggestionsResponse.ok) {
+                throw new Error('Failed to fetch user information');
             }
+
+            const data = await suggestionsResponse.json();
+            console.log('API Response:', data);
+            
+            // Mark as confirmed first
+            this.isNationalIdConfirmed = true;
+            this.currentNationalId = nationalId;
+            
+            // Show success message
+            this.nationalIdValidation.innerHTML = '<span>✅</span> ID confirmed successfully';
+            this.confirmNationalIdBtn.classList.remove('pulse');
+            this.confirmNationalIdBtn.classList.add('hidden');
+
+            // Update the user info display
+            if (data && data.family_data && data.family_data.members) {
+                const members = data.family_data.members;
+                console.log('Family members:', members);
+
+                // Find the principal member (the one with the ID we entered)
+                const principal = members.find(m => m.national_id === nationalId) || members[0];
+                
+                if (principal) {
+                    // Update the display with principal's information
+                    this.contractorName.textContent = principal.name || '-';
+                    this.expiryDate.textContent = this.formatDate(principal.end_date) || '-';
+                    this.beneficiaryCount.textContent = data.family_data.total_members.toString() || '-';
+                } else {
+                    this.clearUserInfo();
+                }
+            } else {
+                this.clearUserInfo();
+            }
+
+            // Display suggested questions if available
+            if (data.questions && data.questions.length > 0) {
+                // Create or get the suggested questions container
+                let suggestedQuestionsContainer = document.getElementById('suggestedQuestionsContainer');
+                if (!suggestedQuestionsContainer) {
+                    suggestedQuestionsContainer = document.createElement('div');
+                    suggestedQuestionsContainer.id = 'suggestedQuestionsContainer';
+                    suggestedQuestionsContainer.className = 'suggested-questions-container';
+                    
+                    // Insert after the user info section
+                    const userInfoSection = document.querySelector('.user-info-section');
+                    if (userInfoSection) {
+                        userInfoSection.parentNode.insertBefore(suggestedQuestionsContainer, userInfoSection.nextSibling);
+                    }
+                }
+
+                // Clear previous questions
+                suggestedQuestionsContainer.innerHTML = `
+                    <div class="suggested-questions-header">
+                        <h3>Suggested Questions</h3>
+                        <p>Click on a question to ask it</p>
+                    </div>
+                    <div class="suggested-questions-list"></div>
+                `;
+
+                const questionsList = suggestedQuestionsContainer.querySelector('.suggested-questions-list');
+                
+                // Add each question as a clickable button
+                data.questions.forEach(question => {
+                    const questionButton = document.createElement('button');
+                    questionButton.className = 'suggested-question-btn';
+                    questionButton.textContent = question;
+                    questionButton.addEventListener('click', () => {
+                        if (this.questionInput) {
+                            this.questionInput.value = question;
+                            this.updateSubmitButtonState();
+                            // Optionally, focus the input
+                            this.questionInput.focus();
+                        }
+                    });
+                    questionsList.appendChild(questionButton);
+                });
+
+                // Show the container
+                suggestedQuestionsContainer.style.display = 'block';
+            }
+
+            // Enable/disable submit button based on question input
+            this.submitBtn.disabled = !this.questionInput.value.trim();
             
         } catch (error) {
-            // Error state
-            this.nationalIdValidation.classList.remove('progress');
-            this.nationalIdValidation.classList.add('invalid');
-            this.nationalIdValidation.innerHTML = '<span>❌</span> Error loading policies. Please try again.';
-            
-            // Reset state
+            console.error('Error:', error);
+            this.showError('Failed to verify National ID. Please try again.');
             this.isNationalIdConfirmed = false;
-            this.currentNationalId = '';
-            this.nationalIdInput.disabled = false;
-            this.nationalIdInput.focus();
-            this.updateSubmitButtonState();
+            this.clearUserInfo();
         }
     }
     
@@ -1269,16 +1325,29 @@ class InsuranceAssistant {
     }
 
     formatDate(dateString) {
-        if (!dateString) return 'N/A';
+        if (!dateString) return '-';
         try {
+            // Handle different date formats
             const date = new Date(dateString);
-            return date.toLocaleDateString('en-US', {
-                year: 'numeric',
-                month: 'short',
-                day: 'numeric'
-            });
+            if (isNaN(date.getTime())) {
+                // If direct parsing fails, try to handle different formats
+                const parts = dateString.split(/[-/]/);
+                if (parts.length === 3) {
+                    // Try different date part arrangements
+                    date = new Date(parts[2], parts[1] - 1, parts[0]); // DD/MM/YYYY
+                    if (isNaN(date.getTime())) {
+                        date = new Date(parts[2], parts[0] - 1, parts[1]); // MM/DD/YYYY
+                    }
+                }
+            }
+            
+            if (!isNaN(date.getTime())) {
+                return date.toLocaleDateString('en-GB'); // Format as DD/MM/YYYY
+            }
+            return dateString; // Return original string if parsing fails
         } catch (e) {
-            return 'N/A';
+            console.error('Error formatting date:', e);
+            return dateString || '-';
         }
     }
 
@@ -1494,6 +1563,53 @@ class InsuranceAssistant {
         
         this.answerSection.innerHTML = warningHtml;
         this.showLoading(false); // Ensure loading indicator is hidden
+    }
+
+    updateUserInfo(data) {
+        if (data && data.answer) {
+            try {
+                // Extract information from the answer
+                const answer = data.answer;
+                let info = {};
+
+                // Try to parse if it's a JSON string
+                if (typeof answer === 'string') {
+                    try {
+                        info = JSON.parse(answer);
+                    } catch {
+                        // If not JSON, parse the text response
+                        const nameMatch = answer.match(/name(?:\s+is)?:\s*([^\n,]+)/i);
+                        const expiryMatch = answer.match(/expiry(?:\s+date)?:\s*([^\n,]+)/i);
+                        const familyMatch = answer.match(/family members?:\s*(\d+)/i);
+                        
+                        info = {
+                            name: nameMatch ? nameMatch[1].trim() : null,
+                            expiry_date: expiryMatch ? expiryMatch[1].trim() : null,
+                            family_count: familyMatch ? familyMatch[1].trim() : null
+                        };
+                    }
+                } else {
+                    info = answer;
+                }
+
+                // Update the display fields
+                this.contractorName.textContent = info.name || info.contractor_name || info.username || '-';
+                this.expiryDate.textContent = info.expiry_date || info.policy_expiry || '-';
+                this.beneficiaryCount.textContent = info.family_count || info.beneficiary_count || info.members_count || '-';
+
+            } catch (e) {
+                console.error('Error parsing user info:', e);
+                this.clearUserInfo();
+            }
+        } else {
+            this.clearUserInfo();
+        }
+    }
+
+    clearUserInfo() {
+        this.contractorName.textContent = '-';
+        this.expiryDate.textContent = '-';
+        this.beneficiaryCount.textContent = '-';
     }
 }
 

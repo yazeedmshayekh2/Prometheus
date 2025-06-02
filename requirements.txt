@@ -42,3 +42,5 @@ cuvs-cu12
 # New dependencies
 pytz
 langchain-community
+
+flash-attn

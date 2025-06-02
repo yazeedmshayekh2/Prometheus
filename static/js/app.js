@@ -35,6 +35,9 @@ class InsuranceAssistant {
         this.expiryDate = document.getElementById('expiryDate');
         this.beneficiaryCount = document.getElementById('beneficiaryCount');
 
+        // Add chat history for multi-turn conversation
+        this.chatHistory = [];
+
         console.log('DOM Elements found:', {
             nationalIdInput: !!this.nationalIdInput,
             nationalIdValidation: !!this.nationalIdValidation,
@@ -68,62 +71,76 @@ class InsuranceAssistant {
     setupEventListeners() {
         // Theme toggle
         if (this.themeToggle) {
-            this.themeToggle.addEventListener('click', () => {
-                this.toggleTheme();
+            this.themeToggle.addEventListener('click', () => this.toggleTheme());
+        }
+        
+        // National ID input validation
+        if (this.nationalIdInput) {
+            this.nationalIdInput.addEventListener('input', (e) => {
+                const numbersOnly = e.target.value.replace(/\D/g, '');
+                e.target.value = numbersOnly;
+                this.validateNationalIdInput(numbersOnly);
+            });
+            
+            this.nationalIdInput.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    this.handleNationalIdConfirm();
+                }
             });
         }
         
-        // National ID input validation with strict 11-digit requirement
-        this.nationalIdInput.addEventListener('input', (e) => {
-            const input = e.target.value;
-            
-            // Only allow numbers
-            const numbersOnly = input.replace(/\D/g, '');
-            
-            // Update input with numbers only
-            if (input !== numbersOnly) {
-                e.target.value = numbersOnly;
-            }
-            
-            this.validateNationalIdInput(numbersOnly);
-        });
-        
-        // Handle Enter key in National ID input
-        this.nationalIdInput.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') {
-                e.preventDefault();
-                this.handleNationalIdConfirm();
-            }
-        });
-        
         // Confirm National ID button
-        this.confirmNationalIdBtn.addEventListener('click', () => {
-            this.handleNationalIdConfirm();
-        });
-        
-        // Submit button for questions
-        this.submitBtn.addEventListener('click', () => this.handleSubmit());
-        
-        // Enable/disable submit button based on input
-        const validateInputs = () => {
-            const question = this.questionInput.value.trim();
-            this.submitBtn.disabled = !this.isNationalIdConfirmed || !question;
-        };
+        if (this.confirmNationalIdBtn) {
+            this.confirmNationalIdBtn.addEventListener('click', () => this.handleNationalIdConfirm());
+        }
 
-        this.questionInput.addEventListener('input', validateInputs);
-        
-        // Handle question input Enter key
-        this.questionInput.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                if (!this.submitBtn.disabled) {
-                    this.handleSubmit();
+        // Question input handlers
+        if (this.questionInput) {
+            // Add input event listener to update button state
+            this.questionInput.addEventListener('input', () => {
+                this.updateSubmitButtonState();
+            });
+            
+            this.questionInput.addEventListener('keypress', async (e) => {
+                if (e.key === 'Enter' && !e.shiftKey && !this.isLoading) {
+                    e.preventDefault();
+                    await this.handleQuestionSubmit();
                 }
-            }
-        });
-        
+            });
+        }
+
+        if (this.submitBtn) {
+            this.submitBtn.addEventListener('click', async (e) => {
+                e.preventDefault();
+                if (!this.isLoading) {
+                    await this.handleQuestionSubmit();
+                }
+            });
+        }
+
         // Initialize button state
-        validateInputs();
+        this.updateSubmitButtonState();
+    }
+
+    updateSubmitButtonState() {
+        if (!this.submitBtn) return;
+
+        const hasQuestion = this.questionInput && this.questionInput.value.trim().length > 0;
+        const canSubmit = this.isNationalIdConfirmed && hasQuestion && !this.isLoading;
+
+        this.submitBtn.disabled = !canSubmit;
+        
+        // Update button appearance
+        if (canSubmit) {
+            this.submitBtn.style.backgroundColor = '#0d6efd';
+            this.submitBtn.style.color = '#fff';
+            this.submitBtn.style.cursor = 'pointer';
+        } else {
+            this.submitBtn.style.backgroundColor = '#ccc';
+            this.submitBtn.style.color = '#212529';
+            this.submitBtn.style.cursor = 'not-allowed';
+        }
     }
 
     validateNationalIdInput(value) {
@@ -199,9 +216,6 @@ class InsuranceAssistant {
             this.nationalIdValidation.innerHTML = '<span>❌</span> National ID must be exactly 11 digits';
             this.isNationalIdConfirmed = false;
         }
-        
-        // Update submit button state
-        this.updateSubmitButtonState();
     }
     
     async handleNationalIdConfirm() {
@@ -240,6 +254,9 @@ class InsuranceAssistant {
             this.confirmNationalIdBtn.classList.remove('pulse');
             this.confirmNationalIdBtn.classList.add('hidden');
 
+            // Update button state after confirmation
+            this.updateSubmitButtonState();
+
             // Update the user info display
             if (data && data.family_data && data.family_data.members) {
                 const members = data.family_data.members;
@@ -262,7 +279,6 @@ class InsuranceAssistant {
 
             // Display suggested questions if available
             if (data.questions && data.questions.length > 0) {
-                // Create or get the suggested questions container
                 let suggestedQuestionsContainer = document.getElementById('suggestedQuestionsContainer');
                 if (!suggestedQuestionsContainer) {
                     suggestedQuestionsContainer = document.createElement('div');
@@ -289,14 +305,24 @@ class InsuranceAssistant {
                 
                 // Add each question as a clickable button
                 data.questions.forEach(question => {
+                    // Clean the question text:
+                    // 1. Remove [] brackets and their contents
+                    // 2. Remove "Question #:" prefix
+                    // 3. Remove any markdown formatting
+                    // 4. Remove extra whitespace
+                    let cleanQuestion = question
+                        .replace(/\[\d*\]/g, '') // Remove [1], [2], etc.
+                        .replace(/\*\*Question\s*(?:#?\d+|):\*\*\s*/i, '') // Remove "Question #:" or "Question:"
+                        .replace(/\*\*/g, '') // Remove any remaining **bold** markdown
+                        .replace(/^#+\s*/, '') // Remove markdown headers
+                        .trim(); // Remove extra whitespace
+
                     const questionButton = document.createElement('button');
                     questionButton.className = 'suggested-question-btn';
-                    questionButton.textContent = question;
+                    questionButton.textContent = cleanQuestion;
                     questionButton.addEventListener('click', () => {
                         if (this.questionInput) {
-                            this.questionInput.value = question;
-                            this.updateSubmitButtonState();
-                            // Optionally, focus the input
+                            this.questionInput.value = cleanQuestion;
                             this.questionInput.focus();
                         }
                     });
@@ -317,10 +343,172 @@ class InsuranceAssistant {
             this.clearUserInfo();
         }
     }
-    
-    updateSubmitButtonState() {
-        const question = this.questionInput ? this.questionInput.value.trim() : '';
-        this.submitBtn.disabled = !this.isNationalIdConfirmed || !question;
+
+    async handleQuestionSubmit() {
+        const question = this.questionInput.value.trim();
+        if (!question || !this.isNationalIdConfirmed || !this.currentNationalId) {
+            console.log('Cannot submit: question empty or ID not confirmed');
+            return;
+        }
+
+        try {
+            console.log('Submitting question:', question);
+            this.setLoading(true);
+            
+            // Create or ensure chat container exists
+            if (!this.chatContainer) {
+                const responseContainer = document.querySelector('.response-container');
+                if (!responseContainer) {
+                    console.error('Response container not found');
+                    return;
+                }
+                this.chatContainer = responseContainer.querySelector('.chatcontainer');
+                if (!this.chatContainer) {
+                    this.chatContainer = document.createElement('div');
+                    this.chatContainer.className = 'chatcontainer';
+                    responseContainer.appendChild(this.chatContainer);
+                }
+            }
+
+            // Show the response container
+            const responseContainer = document.querySelector('.response-container');
+            if (responseContainer) {
+                responseContainer.classList.remove('hidden');
+                responseContainer.classList.add('show');
+            }
+            
+            // Add user message to chat
+            this.addMessageToChat('user', question);
+            
+            // Clear input and update button state
+            this.questionInput.value = '';
+            this.updateSubmitButtonState();
+            
+            // Send to API
+            console.log('Sending request to API:', {
+                national_id: this.currentNationalId,
+                question: question,
+                chat_history: this.chatHistory
+            });
+
+            const response = await fetch('/api/query', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    national_id: this.currentNationalId,
+                    question: question,
+                    chat_history: this.chatHistory
+                })
+            });
+
+            console.log('API Response status:', response.status);
+            
+            if (!response.ok) {
+                const errorData = await response.json();
+                console.error('API Error:', errorData);
+                throw new Error(errorData.detail?.message || errorData.detail || `Error: ${response.status}`);
+            }
+
+            const data = await response.json();
+            console.log('API Response data:', data);
+            
+            if (data?.answer) {
+                // Add assistant message to chat
+                this.addMessageToChat('assistant', data.answer);
+            } else {
+                console.error('No answer in response:', data);
+                throw new Error('No answer received from server');
+            }
+        } catch (error) {
+            console.error('Error submitting question:', error);
+            this.showError(error.message || 'Failed to get response from server');
+        } finally {
+            this.setLoading(false);
+            this.updateSubmitButtonState();
+        }
+    }
+
+    addMessageToChat(role, content) {
+        if (!content) {
+            console.error('No content provided for chat message');
+            return;
+        }
+
+        console.log(`Adding ${role} message:`, content);
+        
+        // Add to chat history
+        this.chatHistory.push({ role, content });
+        
+        // Create message element
+        const messageDiv = document.createElement('div');
+        messageDiv.className = `chat ${role}-message`;
+        
+        // Style based on role
+        if (role === 'user') {
+            messageDiv.style.cssText = `
+                float: right;
+                background-color: #e9e8e8;
+                clear: both;
+                margin-left: auto;
+                max-width: 70%;
+                margin-bottom: 10px;
+                padding: 10px 15px;
+                border-radius: 15px;
+            `;
+        } else {
+            messageDiv.style.cssText = `
+                float: left;
+                background-color: #f2f2f2;
+                clear: both;
+                margin-right: auto;
+                max-width: 70%;
+                margin-bottom: 10px;
+                padding: 10px 15px;
+                border-radius: 15px;
+            `;
+        }
+
+        // Set content with proper formatting
+        messageDiv.innerHTML = role === 'assistant' 
+            ? this.markdownToHtml(content)
+            : this.escapeHtml(content);
+
+        // Ensure chat container exists
+        if (!this.chatContainer) {
+            const responseContainer = document.querySelector('.response-container');
+            if (!responseContainer) {
+                console.error('Response container not found');
+                return;
+            }
+            this.chatContainer = responseContainer.querySelector('.chatcontainer');
+            if (!this.chatContainer) {
+                this.chatContainer = document.createElement('div');
+                this.chatContainer.className = 'chatcontainer';
+                responseContainer.appendChild(this.chatContainer);
+            }
+        }
+        
+        // Add message to container
+        this.chatContainer.appendChild(messageDiv);
+        
+        // Scroll to bottom
+        this.chatContainer.scrollTop = this.chatContainer.scrollHeight;
+        
+        console.log('Message added to chat');
+    }
+
+    setLoading(isLoading) {
+        this.isLoading = isLoading;
+        if (this.submitBtn) {
+            this.submitBtn.disabled = isLoading;
+            this.submitBtn.style.backgroundColor = isLoading ? '#ccc' : '#0d6efd';
+            this.submitBtn.style.cursor = isLoading ? 'not-allowed' : 'pointer';
+        }
+        if (this.loadingIndicator) {
+            this.loadingIndicator.classList.toggle('hidden', !isLoading);
+        }
     }
 
     async handleNationalIdChange() {
@@ -550,8 +738,7 @@ class InsuranceAssistant {
                                                          .replace(/^#+\s*/, ''); // Remove one or more "#" followed by space
                     this.questionInput.value = cleanedQuestionForInput;
                     // MODIFIED: Update button state to enable it if appropriate
-                    this.updateSubmitButtonState(); 
-                    // MODIFIED: Removed auto-submission logic
+                    this.questionInput.focus(); 
                 }
             });
             bubblesContainer.appendChild(bubble);
@@ -566,40 +753,6 @@ class InsuranceAssistant {
         this.suggestedQuestions.classList.add('hidden');
     }
 
-    async handleSubmit() {
-        console.log('handleSubmit starting, answerSection exists:', !!this.answerSection);
-        
-        if (!this.answerSection) {
-            console.warn('Answer section is null, attempting to find it');
-            this.answerSection = document.getElementById('answer');
-            console.log('After retry, answerSection exists:', !!this.answerSection);
-        }
-
-        const nationalId = this.currentNationalId;
-        const question = this.questionInput?.value?.trim();
-
-        if (!this.isNationalIdConfirmed || !nationalId || !question) {
-            console.log('Missing input - nationalIdConfirmed:', this.isNationalIdConfirmed, 'nationalId:', !!nationalId, 'question:', !!question);
-            if (!this.isNationalIdConfirmed) {
-                this.showError('Please enter and confirm your 11-digit National ID first.');
-            } else {
-                this.showError('Please enter your question.');
-            }
-            return;
-        }
-
-        try {
-            this.showLoading(true);
-            const response = await this.queryAPI(nationalId, question);
-            this.showLoading(false);
-            this.displayResponse(response);
-        } catch (error) {
-            console.error('Error in handleSubmit:', error);
-            this.showLoading(false);
-            this.showError('An error occurred while processing your request.');
-        }
-    }
-
     async queryAPI(nationalId, question) {
         try {
             const response = await fetch('/api/query', {
@@ -610,7 +763,8 @@ class InsuranceAssistant {
                 },
                 body: JSON.stringify({
                     national_id: nationalId,
-                    question: question
+                    question: question,
+                    chat_history: this.chatHistory
                 })
             });
 
@@ -660,7 +814,6 @@ class InsuranceAssistant {
 
     displayResponse(response) {
         if (!response) {
-            // If no response (e.g., content blocked), hide the response container
             const responseContainer = document.querySelector('.response-container');
             if (responseContainer) {
                 console.log('No response received, hiding response container');
@@ -685,45 +838,52 @@ class InsuranceAssistant {
             console.error('Response container not found!');
         }
 
-        let htmlToDisplay = '';
-
-        // Display content warning if present (for sanitized content)
-        if (response.content_warning) {
-            htmlToDisplay += `
-                <div class="content-warning sanitized">
-                    <div class="warning-icon">⚠️</div>
-                    <div class="warning-text">
-                        <p class="warning-message">${this.escapeHtml(response.content_warning)}</p>
-                    </div>
-                </div>
-            `;
+        // Create or get the chat container
+        let chatContainer = this.answerSection.querySelector('.chatcontainer');
+        if (!chatContainer) {
+            chatContainer = document.createElement('div');
+            chatContainer.className = 'chatcontainer';
+            this.answerSection.appendChild(chatContainer);
         }
 
-        // Display the answer with improved markdown formatting
-        if (response.answer) {
-            try {
-                htmlToDisplay += `
-                    <div class="markdown">
-                        ${this.markdownToHtml(response.answer)}
-                    </div>
+        // Display the entire conversation history
+        chatContainer.innerHTML = '';
+        this.chatHistory.forEach((message, index) => {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'chat';
+            
+            // Add specific styling based on the role
+            if (message.role === 'user') {
+                messageDiv.style.cssText = `
+                    float: right;
+                    background-color: #e9e8e8;
+                    clear: both;
                 `;
-            } catch (error) {
-                console.error('Error setting answer HTML:', error);
+            } else {
+                messageDiv.style.cssText = `
+                    float: left;
+                    background-color: #f2f2f2;
+                    clear: both;
+                `;
             }
-        } else if (!response.content_warning) { // Only show "No answer" if no other warning is up
-            htmlToDisplay += '<div class="error-message">No answer received</div>';
-        }
-        
-        console.log('Setting answer section innerHTML, length:', htmlToDisplay.length);
-        this.answerSection.innerHTML = htmlToDisplay;
 
-        // Handle PDF display - only load if not already loaded or if it's a different PDF
+            // Convert markdown to HTML for assistant messages
+            const content = message.role === 'assistant' 
+                ? this.markdownToHtml(message.content)
+                : this.escapeHtml(message.content);
+            
+            messageDiv.innerHTML = content;
+            chatContainer.appendChild(messageDiv);
+        });
+
+        // Scroll to the bottom of the chat container
+        chatContainer.scrollTop = chatContainer.scrollHeight;
+
+        // Handle PDF display if needed
         if (response.pdf_info && response.pdf_info.pdf_link) {
             if (!this.isPdfLoaded || this.currentPdfLink !== response.pdf_info.pdf_link) {
                 this.displayPDF(response.pdf_info);
             }
-        } else if (!this.isPdfLoaded) {
-            this.hidePDF();
         }
     }
 

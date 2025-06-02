@@ -89,6 +89,7 @@ class QueryRequest(BaseModel):
     question: str
     national_id: Optional[str] = None
     system_prompt: Optional[str] = None
+    chat_history: Optional[List[dict]] = None  # New: chat history for multi-turn
 
 @app.post(
     "/api/query",
@@ -144,10 +145,14 @@ async def query_endpoint(request: QueryRequest):
         # Process the question (original or sanitized)
         processed_question = question_processor.preprocess_question(user_question_to_process)
         
-        # Generate answer candidates
+        # Prepare chat history for multi-turn
+        chat_history = request.chat_history if request.chat_history else []
+        
+        # Generate answer candidates with chat history
         answer_candidates = question_processor.generate_answer(
             processed_question,
-            national_id=request.national_id
+            national_id=request.national_id,
+            chat_history=chat_history
         )
         
         response_data = {}

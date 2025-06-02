@@ -28,11 +28,17 @@
             <div class="col-lg-8 col-md-6 col-sm-12 border-r">
                 <div class="id-input-section">
                     <input type="text" id="nationalId" placeholder="Enter Qatari ID (11 digits)" maxlength="11" />
-                    <div id="nationalIdValidation" class="validation-message hidden"></div>
+                    <div id="nationalIdValidation" class="validation-message"></div>
                     <button id="confirmNationalId">Confirm ID</button>
                 </div>
-                <div class="container chatcontainer">
-                    <div class="chat">Hi i'am chatbot that can help you with your medical group policy; Please enter your Qatari ID above to start.</div>
+                <div class="response-container">
+                    <div id="loadingIndicator" class="loading-indicator hidden">
+                        <div class="spinner"></div>
+                        <p>Processing your question...</p>
+                    </div>
+                    <div class="container chatcontainer">
+                        <div class="chat">Hi i'am chatbot that can help you with your medical group policy; Please enter your Qatari ID above to start.</div>
+                    </div>
                 </div>
                 <div class="textChat">
                     <textarea id="questionInput" placeholder="Ask anything"></textarea>

@@ -207,13 +207,15 @@ class QuestionProcessor:
         
         return question_type, confidence
     
-    def generate_answer(self, processed_question: ProcessedQuestion, national_id: Optional[str] = None) -> List[AnswerCandidate]:
+    def generate_answer(self, processed_question: ProcessedQuestion, national_id: Optional[str] = None, chat_history: Optional[list] = None) -> List[AnswerCandidate]:
         candidates = []
         
-        # Get base answer from QA system
+        # Prepare chat history for multi-turn
+        chat_history = chat_history if chat_history is not None else []
         base_response = self.qa_system.query(
             question=processed_question.normalized_question,
-            national_id=national_id
+            national_id=national_id,
+            chat_history=chat_history
         )
         
         if base_response:

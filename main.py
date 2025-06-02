@@ -1838,7 +1838,7 @@ Please give a short succinct context to situate this chunk within the overall do
             # Return original chunks with neutral scores if reranking fails
             return [(chunk, 0.5) for chunk in chunks]
 
-    def query(self, question: str, national_id: Optional[str] = None) -> QueryResponse:
+    def query(self, question: str, national_id: Optional[str] = None, chat_history: Optional[list] = None) -> QueryResponse:
         """
         Main query method using the intelligent search and answer system
         """
@@ -1846,6 +1846,7 @@ Please give a short succinct context to situate this chunk within the overall do
             print(f"\n=== Insurance Policy Query ===")
             print(f"Question: {question}")
             print(f"National ID: {national_id}")
+            print(f"Chat history: {chat_history}")
             
             if not national_id:
                 return QueryResponse(
@@ -1854,8 +1855,8 @@ Please give a short succinct context to situate this chunk within the overall do
                     suggested_questions=["How do I find my National ID?", "What documents do I need?"]
                 )
             
-            # Use the new intelligent search and answer system
-            return self.intelligent_search_and_answer(national_id, question)
+            # Use the new intelligent search and answer system with chat history
+            return self.intelligent_search_and_answer(national_id, question, chat_history=chat_history)
             
         except Exception as e:
             print(f"Error in main query method: {str(e)}")
@@ -3410,7 +3411,7 @@ General Insurance Guidelines:
         except Exception as e:
             print(f"Error loading available collections: {str(e)}")
 
-    def intelligent_search_and_answer(self, national_id: str, question: str) -> QueryResponse:
+    def intelligent_search_and_answer(self, national_id: str, question: str, chat_history: Optional[list] = None) -> QueryResponse:
         """
         Intelligent search and answer system optimized for performance and quality
         """
@@ -3418,6 +3419,7 @@ General Insurance Guidelines:
             print(f"\n=== Processing Query ===")
             print(f"Question: {question}")
             print(f"National ID: {national_id}")
+            print(f"Chat history: {chat_history}")
             
             # Step 1: Load available collections (fast check)
             self._load_available_collections()
@@ -3477,7 +3479,22 @@ General Insurance Guidelines:
             
             # Step 5: Generate intelligent response using Qwen2.5
             context_text = self._prepare_context_for_llm(relevant_chunks, question)
-            response_text = self._generate_intelligent_response(question, context_text)
+            # If chat_history is provided, prepend it to the context for multi-turn
+            if chat_history:
+                # Build a chat-style prompt
+                chat_prompt = ""
+                for msg in chat_history:
+                    role = msg.get('role', 'user')
+                    content = msg.get('content', '')
+                    if role == 'user':
+                        chat_prompt += f"User: {content}\n"
+                    else:
+                        chat_prompt += f"Assistant: {content}\n"
+                chat_prompt += f"User: {question}\n"
+                chat_prompt += context_text
+                response_text = self._generate_intelligent_response(chat_prompt, context_text)
+            else:
+                response_text = self._generate_intelligent_response(question, context_text)
             
             # Step 6: Create source information
             sources = [

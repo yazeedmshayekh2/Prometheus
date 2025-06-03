@@ -2,10 +2,12 @@
 <html>
 <head>
     <meta charset="utf-8" />
-    <title>DIG Chat</title>
+    <title> 👋 🤖 DIG Chat </title>
     <link href="Content/css/bootstrap/css/bootstrap.css" rel="stylesheet" />
     <link href="Content/css/site.css" rel="stylesheet" />
-    <link href="css/style.css" rel="stylesheet" />
+    <!-- Add Bootstrap dependencies -->
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.11.6/dist/umd/popper.min.js"></script>
     <script src="Content/css/bootstrap/js/bootstrap.js"></script>
     <link rel="icon" type="image/x-icon" href="Content/img/dig-sm-logo.png">
 </head>
@@ -13,86 +15,136 @@
     <div class="container">
         <!-- Just an image -->
         <nav class="navbar navbar-light bg-light">
-            <img src="Content/img/dig-sm-logo.png" width="30" height="30" alt="Doha Insurance Group - DIG" title="Doha Insurance Group - DIG" />
-            Medical Group Assistant - DIG
+            <img src="Content/img/dig-sm-logo-w.png" width="30" height="30" alt="Doha Insurance Group - DIG" title="Doha Insurance Group - DIG" />
+            💉 Medical Group Assistant - DIG
         </nav>
         <div class="row">
             <div class="col-md-12">
                 <div class="alert alert-info">
-                    This is a chatbot that can help you with your medical group policy. It can answer questions about your policy, and help you find the best coverage for your needs.
+                    👋 This is a chatbot that can help you with your medical group policy. It can answer questions about your policy, and help you find the best coverage for your needs.
                 </div>
             </div>
         </div>
 
         <div class="row">
             <div class="col-lg-8 col-md-6 col-sm-12 border-r">
-                <div class="id-input-section">
-                    <input type="text" id="nationalId" placeholder="Enter Qatari ID (11 digits)" maxlength="11" />
-                    <div id="nationalIdValidation" class="validation-message"></div>
-                    <button id="confirmNationalId">Confirm ID</button>
-                </div>
+                <!-- Add response container structure -->
                 <div class="response-container show">
-                    <div class="chatcontainer">
-                        <div class="chat assistant-message">Hi I'm chatbot that can help you with your medical group policy. Please enter your Qatari ID above to start.</div>
-                        <div id="loadingIndicator" class="loading-indicator hidden">
-                            <div class="spinner"></div>
-                            <p>Processing your question...</p>
-                        </div>  
-                    </div>  
+                    <div id="loadingIndicator" class="loading-indicator hidden">
+                        <div class="spinner"></div>
+                        <p>Processing user's policies...</p>
+                    </div>
+                    <div id="responseContent" class="response-content">
+                        <div id="answer" class="answer-section">
+                            <div class="container chatcontainer">
+                                <div class="chat">👋 Hi i'am chatbot that can help you with your medical group policy; Please Enter the Insured Qatari ID </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
                 <div class="textChat">
-                    <textarea id="questionInput" placeholder="Ask anything"></textarea>
-                    <button id="submitBtn" disabled>Send</button>
+                    <textarea placeholder="Enter your 11-digit National ID"></textarea>
+                    <button class="btnSend">Send</button>
                 </div>
             </div>
             <div class="col-lg-4 col-md-6 mobile-hiden">
-                <!-- User Information Section -->
-                <div class="user-info-section">
-                    <div class="row searchresult">
-                        <div class="col-md-5">
-                            Contractor Name
-                        </div>
-                        <div class="col-md-1">
-                            :
-                        </div>
-                        <div class="col-md-6" id="contractorName">
-                            -
-                        </div>
+                <div class="row searchresult">
+                    <div class="col-md-4 name">
+                        Contractor Name
                     </div>
-                    <div class="row searchresult">
-                        <div class="col-md-5">
-                            Contact Expiry Date
-                        </div>
-                        <div class="col-md-1">
-                            :
-                        </div>
-                        <div class="col-md-6" id="expiryDate">
-                            -
-                        </div>
+                    <div class="col-md-1">
+                        :
                     </div>
-                    <div class="row searchresult">
-                        <div class="col-md-5">
-                            No. Of Benf.
-                        </div>
-                        <div class="col-md-1">
-                            :
-                        </div>
-                        <div class="col-md-6" id="beneficiaryCount">
-                            -
-                        </div>
+                    <div class="col-md-7" id="contractorName">
+                        -
                     </div>
                 </div>
-                <!-- Suggested Questions Section -->
-                <div id="suggestedQuestionsContainer" class="suggested-questions-container" style="display: none;">
-                    <div class="suggested-questions-header">
-                        <h3>Suggested Questions</h3>
-                        <p>Click on a question to ask it</p>
+
+                <div class="row searchresult">
+                    <div class="col-md-4">
+                        Contact Expiry Date
                     </div>
-                    <div class="suggested-questions-list"></div>
+                    <div class="col-md-1">
+                        :
+                    </div>
+                    <div class="col-md-7" id="expiryDate">
+                        -
+                    </div>
+                </div>
+                <div class="row searchresult">
+                    <div class="col-md-4 name">
+                        Individual Name
+                    </div>
+                    <div class="col-md-1">
+                        :
+                    </div>
+                    <div class="col-md-7 name">
+                        mohammed Rasim Jamous
+                    </div>
+                </div>
+
+                <div class="row searchresult">
+                    <div class="col-md-4">
+                        No. Of Beneficiaries
+                    </div>
+                    <div class="col-md-1">
+                        :
+                    </div>
+                    <div class="col-md-7" id="beneficiaryCount">
+                        <a data-bs-toggle="modal" data-bs-target="#MemsModal">-</a>
+                    </div>
+                </div>
+                <div class="row searchresult">
+                    <div class="col-md-4">
+                        TOB PDF Link
+                    </div>
+                    <div class="col-md-1">
+                        :
+                    </div>
+                    <div class="col-md-7">
+                        <a data-bs-toggle="modal" data-bs-target="#TOBModal"> View TOB </a>
+                    </div>
+                </div>
+
+                <div class="suggest" style="display: none;">
+                    <div class="title">💡 Suggested Questions</div>
+                    <div class="hints">Click on a question to ask it</div>
+                    <div class="suggestbtn"></div>
                 </div>
             </div>
         </div>
     </div>
+
+    <!-- Modals -->
+    <div class="modal fade" id="TOBModal" tabindex="-1" aria-labelledby="TOBModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h1 class="modal-title fs-5 text-center" id="TOBModalLabel">[Company Name] TOB</h1>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <iframe src="about:blank"></iframe>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="MemsModal" tabindex="-1" aria-labelledby="MemsModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h1 class="modal-title fs-5 text-center" id="MemsModalLabel"> 👪 Family Members</h1>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body familymem">
+                    <!-- Family members will be populated by JavaScript -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add app.js at the end of body -->
     <script src="js/app.js"></script>
 </body>
 </html>

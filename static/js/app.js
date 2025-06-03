@@ -4,268 +4,138 @@ class InsuranceAssistant {
     constructor() {
         console.log('InsuranceAssistant constructor starting');
         
-        // Get all elements and log their existence
-        this.nationalIdInput = document.getElementById('nationalId');
-        this.nationalIdValidation = document.getElementById('nationalIdValidation');
-        this.confirmNationalIdBtn = document.getElementById('confirmNationalId');
-        this.questionInput = document.getElementById('questionInput');
-        this.submitBtn = document.getElementById('submitBtn');
-        this.loadingIndicator = document.getElementById('loadingIndicator');
-        this.responseContent = document.getElementById('responseContent');
-        this.answerSection = document.getElementById('answer');
-        this.suggestedQuestions = document.getElementById('suggestedQuestions');
-        this.themeToggle = document.getElementById('themeToggle');
-        
-        // PDF viewer elements
-        this.pdfViewer = document.getElementById('pdfViewer');
-        this.pdfFrame = document.getElementById('pdfFrame');
-        this.pdfCompany = document.getElementById('pdfCompany');
-        this.pdfPlaceholder = document.getElementById('pdfPlaceholder');
-        
-        // Track PDF state
-        this.isPdfLoaded = false;
-        this.currentPdfLink = null;
-        
-        // Track National ID state
-        this.isNationalIdConfirmed = false;
-        this.currentNationalId = '';
+        // Chat elements
+        this.chatContainer = document.querySelector('.chatcontainer');
+        this.textArea = document.querySelector('.textChat textarea');
+        this.sendButton = document.querySelector('.btnSend');
 
         // User info elements
         this.contractorName = document.getElementById('contractorName');
         this.expiryDate = document.getElementById('expiryDate');
         this.beneficiaryCount = document.getElementById('beneficiaryCount');
 
-        // Add chat history for multi-turn conversation
+        // Modals
+        this.tobModal = document.getElementById('TOBModal');
+        this.memsModal = document.getElementById('MemsModal');
+        
+        // Suggestions
+        this.suggestContainer = document.querySelector('.suggest');
+        
+        // State tracking
+        this.isNationalIdConfirmed = false;
+        this.currentNationalId = '';
+        this.isLoading = false;
         this.chatHistory = [];
 
-        console.log('DOM Elements found:', {
-            nationalIdInput: !!this.nationalIdInput,
-            nationalIdValidation: !!this.nationalIdValidation,
-            confirmNationalIdBtn: !!this.confirmNationalIdBtn,
-            questionInput: !!this.questionInput,
-            submitBtn: !!this.submitBtn,
-            loadingIndicator: !!this.loadingIndicator,
-            responseContent: !!this.responseContent,
-            answerSection: !!this.answerSection,
-            suggestedQuestions: !!this.suggestedQuestions,
-            themeToggle: !!this.themeToggle,
-            pdfViewer: !!this.pdfViewer,
-            pdfFrame: !!this.pdfFrame,
-            pdfCompany: !!this.pdfCompany,
-            pdfPlaceholder: !!this.pdfPlaceholder
-        });
-
-        // Initialize theme
-        this.initializeTheme();
-
+        // Initialize
         this.setupEventListeners();
-        console.log('Event listeners set up');
-
-        const initialNationalId = this.nationalIdInput.value.trim();
-        if (initialNationalId) {
-            console.log('Initial National ID found:', initialNationalId);
-            this.validateNationalIdInput(initialNationalId);
-        }
+        this.initializeChat();
+        
+        console.log('InsuranceAssistant initialized with elements:', {
+            chatContainer: !!this.chatContainer,
+            textArea: !!this.textArea,
+            sendButton: !!this.sendButton
+        });
     }
 
     setupEventListeners() {
-        // Theme toggle
-        if (this.themeToggle) {
-            this.themeToggle.addEventListener('click', () => this.toggleTheme());
-        }
-        
-        // National ID input validation
-        if (this.nationalIdInput) {
-            this.nationalIdInput.addEventListener('input', (e) => {
-                const numbersOnly = e.target.value.replace(/\D/g, '');
+        // Text input handler
+        if (this.textArea) {
+            this.textArea.addEventListener('input', (e) => {
+                if (!this.isNationalIdConfirmed) {
+                    // Only allow numbers and limit to 11 digits for National ID
+                    const numbersOnly = e.target.value.replace(/\D/g, '');
+                    if (numbersOnly !== e.target.value) {
                 e.target.value = numbersOnly;
-                this.validateNationalIdInput(numbersOnly);
-            });
-            
-            this.nationalIdInput.addEventListener('keypress', (e) => {
-                if (e.key === 'Enter') {
-                    e.preventDefault();
-                    this.handleNationalIdConfirm();
+            }
+                    if (numbersOnly.length > 11) {
+                        e.target.value = numbersOnly.slice(0, 11);
                 }
-            });
-        }
+                }
+                this.updateSendButtonState();
+        });
         
-        // Confirm National ID button
-        if (this.confirmNationalIdBtn) {
-            this.confirmNationalIdBtn.addEventListener('click', async () => {
-                const nationalId = this.nationalIdInput.value.trim();
-                if (nationalId) {
-                    // Display a user-friendly message about what's happening
-                    if (this.nationalIdValidation) {
-                        this.nationalIdValidation.innerHTML = '<span>⏳</span> Verifying ID, please wait...';
-                        // Ensure the message is visible and styled as a progress/neutral message
-                        this.nationalIdValidation.className = 'validation-message progress'; 
-                        this.nationalIdValidation.classList.remove('hidden');
-                    }
-
-                    this.confirmNationalIdBtn.classList.add('loading');
-                    
-                    try {
-                        // The handleNationalIdConfirm function is expected to update 
-                        // this.nationalIdValidation with the final success or error message.
-                        await this.handleNationalIdConfirm();
-                    } catch (error) {
-                        console.error('Error during ID confirmation process:', error);
-                        // Fallback error display in nationalIdValidation if handleNationalIdConfirm fails to update it
-                        if (this.nationalIdValidation) {
-                             this.nationalIdValidation.innerHTML = '<span>❌</span> Failed to confirm ID. Please try again.';
-                             this.nationalIdValidation.className = 'validation-message invalid';
-                             this.nationalIdValidation.classList.remove('hidden'); // Ensure error is visible
-                        }
-                    } finally {
-                        this.confirmNationalIdBtn.classList.remove('loading');
-                        // The nationalIdValidation should now reflect the outcome from handleNationalIdConfirm or the catch block.
-                    }
-                }
-            });
-        }
-
-        // Question input handlers
-        if (this.questionInput) {
-            // Add input event listener to update button state
-            this.questionInput.addEventListener('input', () => {
-                this.updateSubmitButtonState();
-            });
-            
-            this.questionInput.addEventListener('keypress', async (e) => {
+            this.textArea.addEventListener('keypress', async (e) => {
                 if (e.key === 'Enter' && !e.shiftKey && !this.isLoading) {
-                    e.preventDefault();
-                    await this.handleQuestionSubmit();
+                e.preventDefault();
+                    await this.handleSendMessage();
                 }
             });
         }
 
-        if (this.submitBtn) {
-            this.submitBtn.addEventListener('click', async (e) => {
+        // Send button handler
+        if (this.sendButton) {
+            this.sendButton.addEventListener('click', async (e) => {
                 e.preventDefault();
                 if (!this.isLoading) {
-                    await this.handleQuestionSubmit();
+                    await this.handleSendMessage();
                 }
             });
         }
 
         // Initialize button state
-        this.updateSubmitButtonState();
+        this.updateSendButtonState();
     }
 
-    updateSubmitButtonState() {
-        if (!this.submitBtn) return;
+    initializeChat() {
+        // Clear any existing messages except the welcome message
+        if (this.chatContainer) {
+            const welcomeMessage = this.chatContainer.querySelector('.chat:first-child');
+            if (welcomeMessage) {
+                this.chatContainer.innerHTML = '';
+                this.chatContainer.appendChild(welcomeMessage);
+            }
+        }
+    }
 
-        const hasQuestion = this.questionInput && this.questionInput.value.trim().length > 0;
-        const canSubmit = this.isNationalIdConfirmed && hasQuestion && !this.isLoading;
+    updateSendButtonState() {
+        if (!this.sendButton || !this.textArea) return;
 
-        console.log('Updating submit button state:', {
-            hasQuestion,
-            isNationalIdConfirmed: this.isNationalIdConfirmed,
-            isLoading: this.isLoading,
-            canSubmit
-        });
+        const inputValue = this.textArea.value.trim();
+        let canSubmit = false;
 
-        this.submitBtn.disabled = !canSubmit;
-        
-        // Update button appearance
-        if (canSubmit) {
-            this.submitBtn.style.backgroundColor = '#0d6efd';
-            this.submitBtn.style.color = '#fff';
-            this.submitBtn.style.cursor = 'pointer';
+        if (!this.isNationalIdConfirmed) {
+            // For ID validation phase
+            canSubmit = inputValue.replace(/\D/g, '').length === 11;
         } else {
-            this.submitBtn.style.backgroundColor = '#ccc';
-            this.submitBtn.style.color = '#212529';
-            this.submitBtn.style.cursor = 'not-allowed';
+            // For question phase
+            canSubmit = inputValue.length > 0;
         }
+
+        this.sendButton.disabled = !canSubmit || this.isLoading;
+        this.sendButton.style.opacity = canSubmit && !this.isLoading ? '1' : '0.5';
+        this.sendButton.style.cursor = canSubmit && !this.isLoading ? 'pointer' : 'not-allowed';
     }
 
-    validateNationalIdInput(value) {
-        const length = value.length;
-        
-        // Clear previous validation state
-        this.nationalIdInput.classList.remove('valid', 'invalid');
-        this.nationalIdValidation.classList.remove('valid', 'invalid', 'progress', 'hidden');
-        this.confirmNationalIdBtn.classList.remove('pulse');
-        this.confirmNationalIdBtn.classList.add('hidden');
-        
-        // Check if ID has changed
-        if (this.currentNationalId !== value) {
-            this.isNationalIdConfirmed = false;
-            this.clearUserInfo();
-            
-            // Clear all results including response container
-            this.clearResults(false, '', true);
-            
-            // Reset policy document view to default state
-            if (this.pdfPlaceholder) {
-                this.pdfPlaceholder.classList.remove('hidden');
-                this.pdfPlaceholder.innerHTML = `
-                    <div class="pdf-placeholder-icon">📄</div>
-                    <div class="pdf-placeholder-text">
-                        <strong>Policy Document</strong><br>
-                        Enter your National ID to view your policy documents
-                    </div>
-                `;
+    async handleSendMessage() {
+        if (this.isLoading || !this.textArea) return;
+
+        const message = this.textArea.value.trim();
+        if (!message) return;
+
+        if (!this.isNationalIdConfirmed) {
+            // Handle National ID validation
+            const numbersOnly = message.replace(/\D/g, '');
+            if (numbersOnly.length === 11) {
+                await this.handleNationalIdConfirm(numbersOnly);
             }
-            if (this.pdfViewer) {
-                this.pdfViewer.classList.add('hidden');
-            }
-            if (this.pdfFrame) {
-                this.pdfFrame.src = '';
-            }
-            if (this.suggestedQuestions) {
-                this.suggestedQuestions.classList.add('hidden');
-            }
-            if (this.answerSection) {
-                this.answerSection.innerHTML = '';
-            }
-            // Hide family information section
-            const familyInfoSection = document.getElementById('familyInfoSection');
-            if (familyInfoSection) {
-                familyInfoSection.classList.add('hidden');
-            }
-        }
-        
-        if (length === 0) {
-            // Empty input - just hide validation message
-            this.nationalIdValidation.classList.add('hidden');
-            this.isNationalIdConfirmed = false;
-            return;
-        }
-        
-        if (length < 11) {
-            // Still typing - show neutral progress message
-            this.nationalIdValidation.classList.add('progress');
-            this.nationalIdValidation.innerHTML = `<span>⏳</span> Enter ${11 - length} more digit${11 - length === 1 ? '' : 's'} (${length}/11)`;
-            this.isNationalIdConfirmed = false;
-        } else if (length === 11) {
-            // Exactly 11 digits - show enter button
-            this.nationalIdInput.classList.add('valid');
-            this.nationalIdValidation.classList.add('valid');
-            this.nationalIdValidation.innerHTML = '<span>✅</span> 11 digits entered. Press Confirm ID  to confirm.';
-            this.confirmNationalIdBtn.classList.remove('hidden');
-            this.confirmNationalIdBtn.classList.add('pulse');
         } else {
-            // More than 11 digits - show error
-            this.nationalIdInput.classList.add('invalid');
-            this.nationalIdValidation.classList.add('invalid');
-            this.nationalIdValidation.innerHTML = '<span>❌</span> National ID must be exactly 11 digits';
-            this.isNationalIdConfirmed = false;
-        }
-    }
-    
-    async handleNationalIdConfirm() {
-        const nationalId = this.nationalIdInput.value.trim();
-        
-        if (nationalId.length !== 11) {
-            this.showError('Please enter a valid 11-digit National ID.');
-            return;
+            // Handle regular chat message
+            await this.handleQuestionSubmit(message);
         }
 
+        // Clear input after sending
+        this.textArea.value = '';
+        this.updateSendButtonState();
+    }
+
+    async handleNationalIdConfirm(nationalId) {
         try {
-            // First get suggestions which includes family data
-            const suggestionsResponse = fetch('/api/suggestions', {
+            // Show loading state
+            this.isLoading = true;
+            this.updateSendButtonState();
+            
+            const response = await fetch('/api/suggestions', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -273,75 +143,56 @@ class InsuranceAssistant {
                 body: JSON.stringify({
                     national_id: nationalId
                 })
-            }).then(async (response) => {
-                if (!response.ok) {
-                    throw new Error('Failed to fetch user information');
-                }
-
-                const data = await response.json();
-                console.log('API Response:', data);
-                
-                // Mark as confirmed first
-                this.isNationalIdConfirmed = true;
-                this.currentNationalId = nationalId;
-                
-                // Show success message
-                this.nationalIdValidation.innerHTML = '<span>✅</span> ID confirmed successfully';
-                this.confirmNationalIdBtn.classList.remove('pulse');
-                this.confirmNationalIdBtn.classList.add('hidden');
-
-                // Update button state after confirmation
-                this.updateSubmitButtonState();
-
-                // Update the user info display
-                if (data && data.family_data && data.family_data.members) {
-                    const members = data.family_data.members;
-                    console.log('Family members:', members);
-
-                    // Find the principal member (the one with the ID we entered)
-                    const principal = members.find(m => m.national_id === nationalId) || members[0];
-                    
-                    if (principal) {
-                        // Update the display with principal's information
-                        this.contractorName.textContent = principal.name || '-';
-                        this.expiryDate.textContent = this.formatDate(principal.end_date) || '-';
-                        this.beneficiaryCount.textContent = data.family_data.total_members.toString() || '-';
-                    } else {
-                        this.clearUserInfo();
-                    }
-                } else {
-                    this.clearUserInfo();
-                }
-
-                // Display suggested questions if available
-                if (data.questions && data.questions.length > 0) {
-                    this.displaySuggestedQuestions(data.questions);
-                }
-
-                // Keep chat container visible
-                const responseContainer = document.querySelector('.response-container');
-                if (responseContainer) {
-                    responseContainer.classList.add('show');
-                    responseContainer.classList.remove('hidden');
-                }
-
-            }).catch(error => {
-                console.error('Error:', error);
-                this.showError('Failed to verify National ID. Please try again.');
-                this.isNationalIdConfirmed = false;
-                this.clearUserInfo();
             });
+
+            if (!response.ok) {
+                throw new Error('Failed to fetch user information');
+            }
+
+            const data = await response.json();
+            console.log('API Response:', data);
+        
+        // Mark as confirmed
+        this.isNationalIdConfirmed = true;
+        this.currentNationalId = nationalId;
+        
+            // Add confirmation message to chat
+            this.addMessageToChat('assistant', '✅ ID verified successfully. How can I help you with your policy today?');
+            
+            // Update textarea placeholder
+            if (this.textArea) {
+                this.textArea.placeholder = 'Ask anything about your policy...';
+            }
+
+            // Update user info display
+            if (data?.family_data?.members) {
+                const members = data.family_data.members;
+                const principal = members.find(m => m.national_id === nationalId) || members[0];
+                
+                if (principal) {
+                    this.contractorName.textContent = principal.name || '-';
+                    this.expiryDate.textContent = this.formatDate(principal.end_date) || '-';
+                    this.beneficiaryCount.textContent = data.family_data.total_members.toString() || '-';
+                }
+            }
+
+            // Display suggested questions if available
+            if (data.questions && data.questions.length > 0) {
+                this.displaySuggestedQuestions(data.questions);
+            }
 
         } catch (error) {
             console.error('Error:', error);
-            this.showError('Failed to verify National ID. Please try again.');
+            this.addMessageToChat('assistant', '❌ Failed to verify ID. Please try again.');
             this.isNationalIdConfirmed = false;
             this.clearUserInfo();
+        } finally {
+            this.isLoading = false;
+            this.updateSendButtonState();
         }
     }
 
-    async handleQuestionSubmit() {
-        const question = this.questionInput.value.trim();
+    async handleQuestionSubmit(question) {
         if (!question || !this.isNationalIdConfirmed || !this.currentNationalId) {
             console.log('Cannot submit: question empty or ID not confirmed');
             return;
@@ -351,34 +202,8 @@ class InsuranceAssistant {
             console.log('Submitting question:', question);
             this.setLoading(true);
             
-            // Create or ensure chat container exists
-            if (!this.chatContainer) {
-                const responseContainer = document.querySelector('.response-container');
-                if (!responseContainer) {
-                    console.error('Response container not found');
-                    return;
-                }
-                this.chatContainer = responseContainer.querySelector('.chatcontainer');
-                if (!this.chatContainer) {
-                    this.chatContainer = document.createElement('div');
-                    this.chatContainer.className = 'chatcontainer';
-                    responseContainer.appendChild(this.chatContainer);
-                }
-            }
-
-            // Show the response container
-            const responseContainer = document.querySelector('.response-container');
-            if (responseContainer) {
-                responseContainer.classList.remove('hidden');
-                responseContainer.classList.add('show');
-            }
-            
             // Add user message to chat
             this.addMessageToChat('user', question);
-            
-            // Clear input and update button state
-            this.questionInput.value = '';
-            this.updateSubmitButtonState();
             
             // Send to API
             console.log('Sending request to API:', {
@@ -413,19 +238,32 @@ class InsuranceAssistant {
             if (data?.answer) {
                 // Add assistant message to chat
                 this.addMessageToChat('assistant', data.answer);
+                
+                // Update user info if available
+                this.updateUserInfo(data);
+                
+                // Show suggested questions if available
+                if (data.suggested_questions && data.suggested_questions.length > 0) {
+                    this.displaySuggestedQuestions(data.suggested_questions);
+                }
+                
+                // Update PDF viewer if available
+                if (data.pdf_info) {
+                    await this.displayPDF(data.pdf_info);
+                }
             } else {
                 console.error('No answer in response:', data);
                 throw new Error('No answer received from server');
             }
         } catch (error) {
             console.error('Error submitting question:', error);
-            this.showError(error.message || 'Failed to get response from server');
+            this.showErrorMessage(error.message || 'Failed to get response from server');
         } finally {
             this.setLoading(false);
-            this.updateSubmitButtonState();
+            this.updateSendButtonState();
         }
     }
-
+    
     addMessageToChat(role, content) {
         if (!content) {
             console.error('No content provided for chat message');
@@ -439,526 +277,42 @@ class InsuranceAssistant {
         
         // Create message element
         const messageDiv = document.createElement('div');
-        messageDiv.className = `chat ${role}-message`;
+        // Use 'user' class for user messages, 'assistant' for system messages
+        messageDiv.className = `chat ${role === 'user' ? 'user' : 'assistant'}`;
         
-        // Style based on role
-        if (role === 'user') {
-            messageDiv.style.cssText = `
-                float: right;
-                background-color: #e9e8e8;
-                clear: both;
-                margin-left: auto;
-                max-width: 70%;
-                margin-bottom: 10px;
-                padding: 10px 15px;
-                border-radius: 15px;
-            `;
-        } else {
-            messageDiv.style.cssText = `
-                float: left;
-                background-color: #f2f2f2;
-                clear: both;
-                margin-right: auto;
-                max-width: 70%;
-                margin-bottom: 10px;
-                padding: 10px 15px;
-                border-radius: 15px;
-            `;
-        }
-
         // Set content with proper formatting
         messageDiv.innerHTML = role === 'assistant' 
             ? this.markdownToHtml(content)
             : this.escapeHtml(content);
-
-        // Ensure chat container exists
-        if (!this.chatContainer) {
-            const responseContainer = document.querySelector('.response-container');
-            if (!responseContainer) {
-                console.error('Response container not found');
-                return;
-            }
-            this.chatContainer = responseContainer.querySelector('.chatcontainer');
-            if (!this.chatContainer) {
-                this.chatContainer = document.createElement('div');
-                this.chatContainer.className = 'chatcontainer';
-                responseContainer.appendChild(this.chatContainer);
-            }
-        }
         
         // Add message to container
-        this.chatContainer.appendChild(messageDiv);
-        
-        // Scroll to bottom
-        this.chatContainer.scrollTop = this.chatContainer.scrollHeight;
+        if (this.chatContainer) {
+            this.chatContainer.appendChild(messageDiv);
+            // Scroll to bottom
+            this.chatContainer.scrollTop = this.chatContainer.scrollHeight;
+        }
         
         console.log('Message added to chat');
     }
 
     setLoading(isLoading) {
         this.isLoading = isLoading;
-        if (this.submitBtn) {
-            this.submitBtn.disabled = isLoading;
-            this.submitBtn.style.backgroundColor = isLoading ? '#ccc' : '#0d6efd';
-            this.submitBtn.style.cursor = isLoading ? 'not-allowed' : 'pointer';
+        if (this.sendButton) {
+            this.sendButton.disabled = isLoading;
+            this.sendButton.style.opacity = isLoading ? '0.5' : '1';
+            this.sendButton.style.cursor = isLoading ? 'not-allowed' : 'pointer';
         }
-        if (this.loadingIndicator) {
-            this.loadingIndicator.classList.toggle('hidden', !isLoading);
-        }
-    }
-
-    async handleNationalIdChange() {
-        const nationalId = this.currentNationalId;
-        console.log('Handling National ID change:', nationalId);
-
-        if (!nationalId || !this.isNationalIdConfirmed) {
-            // Clear previous results and show default state
-            this.clearResults(false, '', true);
-            return;
-        }
-
-        try {
-            this.showNationalIdLoading(true);
-            console.log('Fetching suggestions...');
-            const suggestions = await this.getSuggestedQuestions(nationalId);
-            console.log('Received suggestions:', suggestions);
-            
-            // Test family endpoint directly
-            console.log('Testing family endpoint directly...');
-            try {
-                const familyTestResponse = await fetch('/api/test-family', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({ national_id: nationalId })
-                });
-                const familyTestData = await familyTestResponse.json();
-                console.log('Family test data:', familyTestData);
-            } catch (err) {
-                console.error('Family test error:', err);
-            }
-            
-            // Clear any previous error states
-            if (this.pdfPlaceholder) {
-                this.pdfPlaceholder.classList.remove('error');
-            }
-            
-            this.displaySuggestedQuestions(suggestions);
-            
-            // Display family information if available
-            console.log('Checking for family data:', suggestions.family_data);
-            if (suggestions.family_data && suggestions.family_data.members && suggestions.family_data.members.length > 0) {
-                console.log('Displaying family information for', suggestions.family_data.members.length, 'members');
-                this.displayFamilyInformation(suggestions.family_data);
-            } else {
-                console.log('No family data to display');
-            }
-            
-            // Display PDF if available in suggestions response
-            if (suggestions.pdf_info && suggestions.pdf_info.pdf_link) {
-                await this.displayPDF(suggestions.pdf_info);
-            } else {
-                this.clearResults(false, '', true);
-            }
-            
-        } catch (error) {
-            console.error('Error getting suggestions:', error);
-            this.clearResults(true, error.message);
-        } finally {
-            this.showNationalIdLoading(false);
+        if (this.textArea) {
+            this.textArea.disabled = isLoading;
         }
     }
 
-    async getSuggestedQuestions(nationalId) {
-        try {
-            console.log('Making suggestions API call for ID:', nationalId);
-            const response = await fetch('/api/suggestions', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Accept': 'application/json',
-                },
-                body: JSON.stringify({ national_id: nationalId })
-            });
-
-            console.log('API Response status:', response.status);
-            const data = await response.json();
-            
-            if (!response.ok) {
-                console.error('API Error:', data);
-                // Show error in the PDF placeholder
-                if (this.pdfPlaceholder) {
-                    this.pdfPlaceholder.classList.remove('hidden');
-                    this.pdfPlaceholder.innerHTML = `
-                        <div class="pdf-placeholder-icon">⚠️</div>
-                        <div class="pdf-placeholder-text error">
-                            <strong>Policy Document Unavailable</strong><br>
-                            ${data.detail || 'Unable to access policy document'}
-                        </div>
-                    `;
-                }
-                if (this.pdfViewer) {
-                    this.pdfViewer.classList.add('hidden');
-                }
-                throw new Error(data.detail || `Error: ${response.status} - ${response.statusText}`);
-            }
-
-            // Log the full response data
-            console.log('API Response data:', {
-                status: response.status,
-                statusText: response.statusText,
-                headers: Object.fromEntries(response.headers.entries()),
-                data: data
-            });
-
-            // Show policy statistics if available
-            if (data.total_policies > 0) {
-                console.log(`Found ${data.total_policies} policies, ${data.valid_pdfs} with valid PDFs`);
-                if (data.valid_pdfs === 0 && this.pdfPlaceholder) {
-                    this.pdfPlaceholder.classList.remove('hidden');
-                    this.pdfPlaceholder.innerHTML = `
-                        <div class="pdf-placeholder-icon">📄</div>
-                        <div class="pdf-placeholder-text">
-                            <strong>Policy Found</strong><br>
-                            Your policy is active but the document is not available in digital format.
-                            Please contact support if you need a copy.
-                        </div>
-                    `;
-                    if (this.pdfViewer) {
-                        this.pdfViewer.classList.add('hidden');
-                    }
-                }
-            }
-
-            if (data.pdf_info) {
-                console.log('PDF Info:', {
-                    link: data.pdf_info.pdf_link,
-                    company: data.pdf_info.company_name,
-                    policyNumber: data.pdf_info.policy_number,
-                    policyType: data.pdf_info.policy_type
-                });
-            } else {
-                console.log('No PDF information available');
-                if (this.pdfPlaceholder) {
-                    this.pdfPlaceholder.classList.remove('hidden');
-                    this.pdfPlaceholder.innerHTML = `
-                        <div class="pdf-placeholder-icon">📄</div>
-                        <div class="pdf-placeholder-text">
-                            <strong>No PDF Available</strong><br>
-                            The policy document is not available in digital format.
-                            Please contact support if you need a copy.
-                        </div>
-                    `;
-                }
-                if (this.pdfViewer) {
-                    this.pdfViewer.classList.add('hidden');
-                }
-            }
-
-            return data;
-        } catch (error) {
-            console.error('API Error:', error);
-            // Show error in the PDF placeholder if not already shown
-            if (this.pdfPlaceholder && !this.pdfPlaceholder.querySelector('.error')) {
-                this.pdfPlaceholder.classList.remove('hidden');
-                this.pdfPlaceholder.innerHTML = `
-                    <div class="pdf-placeholder-icon">⚠️</div>
-                    <div class="pdf-placeholder-text error">
-                        <strong>Error Loading Policy</strong><br>
-                        ${error.message}
-                    </div>
-                `;
-            }
-            if (this.pdfViewer) {
-                this.pdfViewer.classList.add('hidden');
-            }
-            throw error;
-        }
+    showSuccessMessage() {
+        // Implement the logic to show a success message to the user
+        console.log('Success message logic not implemented');
     }
 
-    displaySuggestedQuestions(suggestions) {
-        console.log('displaySuggestedQuestions starting, answerSection exists:', !!this.answerSection);
-        console.log('displaySuggestedQuestions called with:', suggestions);
-        
-        let suggestedQuestionsContainer = document.getElementById('suggestedQuestionsContainer');
-        if (!suggestedQuestionsContainer) {
-            suggestedQuestionsContainer = document.createElement('div');
-            suggestedQuestionsContainer.id = 'suggestedQuestionsContainer';
-            suggestedQuestionsContainer.className = 'suggested-questions-container';
-            
-            // Insert after the user info section
-            const userInfoSection = document.querySelector('.user-info-section');
-            if (userInfoSection) {
-                userInfoSection.parentNode.insertBefore(suggestedQuestionsContainer, userInfoSection.nextSibling);
-            }
-        }
-
-        // Clear previous questions
-        suggestedQuestionsContainer.innerHTML = `
-            <div class="suggested-questions-header">
-                <h3>Suggested Questions</h3>
-                <p>Click on a question to ask it</p>
-            </div>
-            <div class="suggested-questions-list"></div>
-        `;
-
-        const questionsList = suggestedQuestionsContainer.querySelector('.suggested-questions-list');
-        
-        if (!suggestions || !suggestions.length) {
-            console.log('No suggestions to display');
-            suggestedQuestionsContainer.style.display = 'none';
-            return;
-        }
-
-        // Add each question as a clickable button
-        suggestions.forEach(question => {
-            // Clean the question text
-            let cleanQuestion = question
-                .replace(/\[\d*\]/g, '') // Remove [1], [2], etc.
-                .replace(/\*\*Question\s*(?:#?\d+|):\*\*\s*/i, '') // Remove "Question #:" or "Question:"
-                .replace(/\*\*/g, '') // Remove any remaining **bold** markdown
-                .replace(/^#+\s*/, '') // Remove markdown headers
-                .trim(); // Remove extra whitespace
-
-            const questionButton = document.createElement('button');
-            questionButton.className = 'suggested-question-btn';
-            questionButton.textContent = cleanQuestion;
-            questionButton.addEventListener('click', () => {
-                if (this.questionInput) {
-                    this.questionInput.value = cleanQuestion;
-                    this.questionInput.focus();
-                    // Update submit button state after setting the question
-                    this.updateSubmitButtonState();
-                }
-            });
-            questionsList.appendChild(questionButton);
-        });
-
-        // Show the container
-        suggestedQuestionsContainer.style.display = 'block';
-        console.log('Suggestions displayed, total buttons:', questionsList.children.length);
-    }
-
-    hideSuggestedQuestions() {
-        console.log('Hiding suggestions'); // Debug log
-        this.suggestedQuestions.classList.add('hidden');
-    }
-
-    async queryAPI(nationalId, question) {
-        try {
-            const response = await fetch('/api/query', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Accept': 'application/json',
-                },
-                body: JSON.stringify({
-                    national_id: nationalId,
-                    question: question,
-                    chat_history: this.chatHistory
-                })
-            });
-
-            const responseData = await response.json();
-
-            if (!response.ok) {
-                // Handle specific content filtering errors from the API
-                if (responseData.detail && typeof responseData.detail === 'object' && responseData.detail.error === 'inappropriate_content_blocked') {
-                    this.showContentWarning(responseData.detail.message, responseData.detail.suggestion, true /* isBlocked */);
-                    return null; // Blocked content, stop further processing
-                }
-                // For other errors, throw a generic message or the specific detail
-                throw new Error(responseData.detail?.message || responseData.detail || `HTTP error! status: ${response.status}`);
-            }
-
-            return responseData;
-        } catch (error) {
-            console.error('API Error:', error);
-            // If it's a manually thrown error with a message, use that, otherwise generic
-            this.showError(error.message || 'Failed to get a response from the server.');
-            return null; // Ensure we return null on error to stop processing
-        }
-    }
-
-    showLoading(show) {
-        // Show response container during loading, but only show the loading indicator
-        const responseContainer = document.querySelector('.response-container');
-        if (responseContainer && show) {
-            console.log('Showing response container for loading');
-            responseContainer.classList.remove('hidden');
-            responseContainer.classList.add('show');
-        }
-        
-        this.loadingIndicator.classList.toggle('hidden', !show);
-        this.responseContent.classList.toggle('hidden', show);
-        this.submitBtn.disabled = show;
-    }
-
-    // Separate loading method for National ID processing that doesn't show response container
-    showNationalIdLoading(show) {
-        // Only disable submit button, don't show response container
-        this.submitBtn.disabled = show;
-        
-        // You could add a separate loading indicator here if needed
-        // For now, just disable the button to indicate processing
-    }
-
-    displayResponse(response) {
-        if (!response) {
-            const responseContainer = document.querySelector('.response-container');
-            if (responseContainer) {
-                console.log('No response received, hiding response container');
-                responseContainer.classList.remove('show');
-                responseContainer.classList.add('hidden');
-            }
-            return;
-        }
-
-        if (!this.answerSection) {
-            console.error('Answer section element not found in displayResponse');
-            return;
-        }
-
-        // Show the response container
-        const responseContainer = document.querySelector('.response-container');
-        if (responseContainer) {
-            console.log('Response container found, showing it');
-            responseContainer.classList.remove('hidden');
-            responseContainer.classList.add('show');
-        } else {
-            console.error('Response container not found!');
-        }
-
-        // Create or get the chat container
-        let chatContainer = this.answerSection.querySelector('.chatcontainer');
-        if (!chatContainer) {
-            chatContainer = document.createElement('div');
-            chatContainer.className = 'chatcontainer';
-            this.answerSection.appendChild(chatContainer);
-        }
-
-        // Display the entire conversation history
-        chatContainer.innerHTML = '';
-        this.chatHistory.forEach((message, index) => {
-            const messageDiv = document.createElement('div');
-            messageDiv.className = 'chat';
-            
-            // Add specific styling based on the role
-            if (message.role === 'user') {
-                messageDiv.style.cssText = `
-                    float: right;
-                    background-color: #e9e8e8;
-                    clear: both;
-                `;
-            } else {
-                messageDiv.style.cssText = `
-                    float: left;
-                    background-color: #f2f2f2;
-                    clear: both;
-                `;
-            }
-
-            // Convert markdown to HTML for assistant messages
-            const content = message.role === 'assistant' 
-                ? this.markdownToHtml(message.content)
-                : this.escapeHtml(message.content);
-            
-            messageDiv.innerHTML = content;
-            chatContainer.appendChild(messageDiv);
-        });
-
-        // Scroll to the bottom of the chat container
-        chatContainer.scrollTop = chatContainer.scrollHeight;
-
-        // Handle PDF display if needed
-        if (response.pdf_info && response.pdf_info.pdf_link) {
-            if (!this.isPdfLoaded || this.currentPdfLink !== response.pdf_info.pdf_link) {
-                this.displayPDF(response.pdf_info);
-            }
-        }
-    }
-
-    async displayPDF(pdfInfo) {
-        if (!this.pdfViewer || !this.pdfFrame || !this.pdfCompany) {
-            console.error('PDF viewer elements not found');
-            return;
-        }
-
-        try {
-            // Update company name
-            this.pdfCompany.textContent = pdfInfo.company_name || 'Unknown Company';
-
-            // Create a blob URL for the PDF
-            const response = await fetch('/api/pdf', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ pdf_link: pdfInfo.pdf_link })
-            });
-
-            if (!response.ok) {
-                const errorData = await response.json();
-                throw new Error(errorData.detail || `Failed to fetch PDF: ${response.status}`);
-            }
-
-            const pdfBlob = await response.blob();
-            const pdfUrl = URL.createObjectURL(pdfBlob);
-
-            // Set the PDF in the iframe
-            this.pdfFrame.src = pdfUrl;
-
-            // Hide placeholder and show PDF viewer
-            if (this.pdfPlaceholder) {
-                this.pdfPlaceholder.classList.add('hidden');
-            }
-            this.pdfViewer.classList.remove('hidden');
-
-            // Clean up the blob URL after a delay to ensure it loads
-            setTimeout(() => {
-                URL.revokeObjectURL(pdfUrl);
-            }, 5000);
-
-            // Update PDF state
-            this.isPdfLoaded = true;
-            this.currentPdfLink = pdfInfo.pdf_link;
-
-        } catch (error) {
-            console.error('Error displaying PDF:', error);
-            this.hidePDF();
-            
-            // Show error message in the placeholder
-            if (this.pdfPlaceholder) {
-                this.pdfPlaceholder.classList.remove('hidden');
-                this.pdfPlaceholder.innerHTML = `
-                    <div class="pdf-placeholder-icon">⚠️</div>
-                    <div class="pdf-placeholder-text error">
-                        <strong>Error Loading PDF</strong><br>
-                        ${error.message}
-                    </div>
-                `;
-            }
-        }
-    }
-
-    hidePDF() {
-        if (this.pdfViewer) {
-            this.pdfViewer.classList.add('hidden');
-        }
-        if (this.pdfFrame) {
-            this.pdfFrame.src = '';
-        }
-        if (this.pdfPlaceholder) {
-            this.pdfPlaceholder.classList.add('hidden');
-        }
-        
-        // Reset PDF state
-        this.isPdfLoaded = false;
-        this.currentPdfLink = null;
-    }
-
-    showError(message) {
+    showErrorMessage(message) {
         console.log('showError starting, message:', message);
         console.log('answerSection exists:', !!this.answerSection);
         
@@ -984,9 +338,9 @@ class InsuranceAssistant {
                 fallbackError.textContent = message;
                 
                 // Try to insert after question input
-                if (this.questionInput?.parentNode) {
-                    this.questionInput.parentNode.insertBefore(fallbackError, this.questionInput.nextSibling);
-                } else {
+                if (this.textArea?.parentNode) {
+                    this.textArea.parentNode.insertBefore(fallbackError, this.textArea.nextSibling);
+            } else {
                     document.body.appendChild(fallbackError);
                 }
                 return;
@@ -997,8 +351,8 @@ class InsuranceAssistant {
             this.answerSection.innerHTML = `
                 <div class="error-message">
                     ${this.escapeHtml(message)}
-                </div>
-            `;
+                        </div>
+                    `;
         } catch (error) {
             console.error('Error setting error message:', error);
             alert(message); // Fallback to alert if all else fails
@@ -1085,6 +439,327 @@ class InsuranceAssistant {
         const div = document.createElement('div');
         div.textContent = text;
         return div.innerHTML;
+    }
+
+    displaySuggestedQuestions(questions) {
+        if (!this.suggestContainer) return;
+        
+        const suggestbtn = this.suggestContainer.querySelector('.suggestbtn');
+        if (!suggestbtn) return;
+        
+        suggestbtn.innerHTML = ''; // Clear previous buttons
+        
+        if (!questions || !questions.length) {
+            console.log('No suggestions to display');
+            this.suggestContainer.style.display = 'none';
+            return;
+        }
+
+        questions.forEach(question => {
+            let cleanQuestion = question
+                .replace(/\[\d*\]/g, '')
+                .replace(/\*\*Question\s*(?:#?\d+|):\*\*\s*/i, '')
+                .replace(/\*\*/g, '')
+                .replace(/^#+\s*/, '')
+                .trim();
+            
+            const button = document.createElement('button');
+            button.textContent = cleanQuestion;
+            button.addEventListener('click', () => {
+                if (this.textArea) {
+                    this.textArea.value = cleanQuestion;
+                    this.textArea.focus();
+                    this.updateSendButtonState();
+                }
+            });
+            
+            suggestbtn.appendChild(button);
+        });
+        
+        this.suggestContainer.style.display = 'block';
+    }
+    
+
+    hideSuggestedQuestions() {
+        console.log('Hiding suggestions');
+        const suggestContainer = document.querySelector('.suggest');
+        if (suggestContainer) {
+            suggestContainer.style.display = 'none';
+        }
+    }
+    
+
+    async queryAPI(nationalId, question) {
+        try {
+            const response = await fetch('/api/query', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                },
+                body: JSON.stringify({
+                    national_id: nationalId,
+                    question: question,
+                    chat_history: this.chatHistory
+                })
+            });
+
+            const responseData = await response.json();
+
+            if (!response.ok) {
+                // Handle specific content filtering errors from the API
+                if (responseData.detail && typeof responseData.detail === 'object' && responseData.detail.error === 'inappropriate_content_blocked') {
+                    this.showContentWarning(responseData.detail.message, responseData.detail.suggestion, true /* isBlocked */);
+                    return null; // Blocked content, stop further processing
+                }
+                // For other errors, throw a generic message or the specific detail
+                throw new Error(responseData.detail?.message || responseData.detail || `HTTP error! status: ${response.status}`);
+            }
+
+            return responseData;
+        } catch (error) {
+            console.error('API Error:', error);
+            // If it's a manually thrown error with a message, use that, otherwise generic
+            this.showErrorMessage(error.message || 'Failed to get a response from the server.');
+            return null; // Ensure we return null on error to stop processing
+        }
+    }
+
+    showLoading(show) {
+        // Show response container during loading, but only show the loading indicator
+        const responseContainer = document.querySelector('.response-container');
+        if (responseContainer && show) {
+            console.log('Showing response container for loading');
+            responseContainer.classList.remove('hidden');
+            responseContainer.classList.add('show');
+        }
+        
+        this.loadingIndicator.classList.toggle('hidden', !show);
+        this.responseContent.classList.toggle('hidden', show);
+        this.sendButton.disabled = show;
+    }
+
+    // Separate loading method for National ID processing that doesn't show response container
+    showNationalIdLoading(show) {
+        // Only disable submit button, don't show response container
+        this.sendButton.disabled = show;
+        
+        // You could add a separate loading indicator here if needed
+        // For now, just disable the button to indicate processing
+    }
+
+    displayResponse(response) {
+        if (!response) {
+            const responseContainer = document.querySelector('.response-container');
+            if (responseContainer) {
+                console.log('No response received, hiding response container');
+                responseContainer.classList.remove('show');
+                responseContainer.classList.add('hidden');
+            }
+            return;
+        }
+
+        if (!this.answerSection) {
+            console.error('Answer section element not found in displayResponse');
+            return;
+        }
+
+        // Show the response container
+        const responseContainer = document.querySelector('.response-container');
+        if (responseContainer) {
+            console.log('Response container found, showing it');
+            responseContainer.classList.remove('hidden');
+            responseContainer.classList.add('show');
+        } else {
+            console.error('Response container not found!');
+        }
+
+        // Create or get the chat container
+        let chatContainer = this.answerSection.querySelector('.chatcontainer');
+        if (!chatContainer) {
+            chatContainer = document.createElement('div');
+            chatContainer.className = 'chatcontainer';
+            this.answerSection.appendChild(chatContainer);
+        }
+
+        // Display the entire conversation history
+        chatContainer.innerHTML = '';
+        this.chatHistory.forEach((message, index) => {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'chat';
+            
+            // Add specific styling based on the role
+            if (message.role === 'user') {
+                messageDiv.style.cssText = `
+                    float: right;
+                    background-color: #e9e8e8;
+                    clear: both;
+                `;
+            } else {
+                messageDiv.style.cssText = `
+                    float: left;
+                    background-color: #f2f2f2;
+                    clear: both;
+                `;
+            }
+
+            // Convert markdown to HTML for assistant messages
+            const content = message.role === 'assistant' 
+                ? this.markdownToHtml(message.content)
+                : this.escapeHtml(message.content);
+            
+            messageDiv.innerHTML = content;
+            chatContainer.appendChild(messageDiv);
+        });
+
+        // Scroll to the bottom of the chat container
+        chatContainer.scrollTop = chatContainer.scrollHeight;
+
+        // Handle PDF display if needed
+        if (response.pdf_info && response.pdf_info.pdf_link) {
+            if (!this.isPdfLoaded || this.currentPdfLink !== response.pdf_info.pdf_link) {
+                this.displayPDF(response.pdf_info);
+            }
+        }
+    }
+
+    async displayPDF(pdfInfo) {
+        if (!pdfInfo || !pdfInfo.pdf_link) {
+            console.error('No PDF info provided');
+            return;
+        }
+
+        try {
+            // Update TOB modal title
+            const modalTitle = document.querySelector('#TOBModalLabel');
+            if (modalTitle) {
+                modalTitle.textContent = `${pdfInfo.company_name || 'Company'} TOB`;
+            }
+
+            // Update iframe source
+            const pdfFrame = document.querySelector('#TOBModal iframe');
+            if (pdfFrame) {
+            // Create a blob URL for the PDF
+            const response = await fetch('/api/pdf', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ pdf_link: pdfInfo.pdf_link })
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.detail || `Failed to fetch PDF: ${response.status}`);
+            }
+
+            const pdfBlob = await response.blob();
+            const pdfUrl = URL.createObjectURL(pdfBlob);
+                pdfFrame.src = pdfUrl;
+
+            // Clean up the blob URL after a delay to ensure it loads
+            setTimeout(() => {
+                URL.revokeObjectURL(pdfUrl);
+            }, 5000);
+            }
+
+        } catch (error) {
+            console.error('Error displaying PDF:', error);
+            this.showErrorMessage('Failed to load PDF document. Please try again later.');
+        }
+    }
+
+    hidePDF() {
+        if (this.pdfViewer) {
+            this.pdfViewer.classList.add('hidden');
+        }
+        if (this.pdfFrame) {
+            this.pdfFrame.src = '';
+        }
+        if (this.pdfPlaceholder) {
+            this.pdfPlaceholder.classList.add('hidden');
+        }
+        
+        // Reset PDF state
+        this.isPdfLoaded = false;
+        this.currentPdfLink = null;
+    }
+
+    showContentWarning(message, suggestion, isBlocked = false) {
+        if (!this.answerSection) {
+            this.createResponseStructure(); // Ensure response area exists
+        }
+        
+        // Show the response container
+        const responseContainer = document.querySelector('.response-container');
+        if (responseContainer) {
+            console.log('Response container found in showContentWarning, showing it');
+            responseContainer.classList.remove('hidden');
+            responseContainer.classList.add('show');
+        } else {
+            console.error('Response container not found in showContentWarning!');
+        }
+        
+        let warningHtml = `
+            <div class="content-warning ${isBlocked ? 'blocked' : 'sanitized'}">
+                <div class="warning-icon">${isBlocked ? '🚫' : '⚠️'}</div>
+                <div class="warning-text">
+                    <p class="warning-message">${this.escapeHtml(message)}</p>
+        `;
+        if (suggestion) {
+            warningHtml += `<p class="warning-suggestion">${this.escapeHtml(suggestion)}</p>`;
+        }
+        warningHtml += `</div></div>`;
+        
+        this.answerSection.innerHTML = warningHtml;
+        this.showLoading(false); // Ensure loading indicator is hidden
+    }
+
+    updateUserInfo(data) {
+        if (data && data.answer) {
+            try {
+                // Extract information from the answer
+                const answer = data.answer;
+                let info = {};
+
+                // Try to parse if it's a JSON string
+                if (typeof answer === 'string') {
+                    try {
+                        info = JSON.parse(answer);
+                    } catch {
+                        // If not JSON, parse the text response
+                        const nameMatch = answer.match(/name(?:\s+is)?:\s*([^\n,]+)/i);
+                        const expiryMatch = answer.match(/expiry(?:\s+date)?:\s*([^\n,]+)/i);
+                        const familyMatch = answer.match(/family members?:\s*(\d+)/i);
+                        
+                        info = {
+                            name: nameMatch ? nameMatch[1].trim() : null,
+                            expiry_date: expiryMatch ? expiryMatch[1].trim() : null,
+                            family_count: familyMatch ? familyMatch[1].trim() : null
+                        };
+                    }
+                } else {
+                    info = answer;
+                }
+
+                // Update the display fields
+                this.contractorName.textContent = info.name || info.contractor_name || info.username || '-';
+                this.expiryDate.textContent = info.expiry_date || info.policy_expiry || '-';
+                this.beneficiaryCount.textContent = info.family_count || info.beneficiary_count || info.members_count || '-';
+
+            } catch (e) {
+                console.error('Error parsing user info:', e);
+                this.clearUserInfo();
+            }
+            } else {
+            this.clearUserInfo();
+        }
+    }
+
+    clearUserInfo() {
+        this.contractorName.textContent = '-';
+        this.expiryDate.textContent = '-';
+        this.beneficiaryCount.textContent = '-';
     }
 
     createResponseStructure() {
@@ -1183,320 +858,84 @@ class InsuranceAssistant {
     }
 
     displayFamilyInformation(familyData) {
-        console.log('displayFamilyInformation called with:', familyData);
-        
-        const familyInfoSection = document.getElementById('familyInfoSection');
-        const familyGrid = document.getElementById('familyGrid');
-        const familyEmpty = document.getElementById('familyEmpty');
-        const totalMembersElement = document.getElementById('totalMembers');
-        const activePoliciesElement = document.getElementById('activePolicies');
-
-        console.log('DOM elements found:', {
-            familyInfoSection: !!familyInfoSection,
-            familyGrid: !!familyGrid,
-            familyEmpty: !!familyEmpty,
-            totalMembersElement: !!totalMembersElement,
-            activePoliciesElement: !!activePoliciesElement
-        });
-
         if (!familyData || !familyData.members || familyData.members.length === 0) {
-            if (familyInfoSection) familyInfoSection.classList.add('hidden');
-            if (familyGrid) familyGrid.classList.add('hidden');
-            if (familyEmpty) familyEmpty.classList.remove('hidden');
-            if (totalMembersElement) totalMembersElement.textContent = '0';
-            if (activePoliciesElement) activePoliciesElement.textContent = '0';
+            console.log('No family data to display');
             return;
         }
 
-        // Show the family section
-        if (familyInfoSection) {
-            familyInfoSection.classList.remove('hidden');
-            
-            // Set up toggle functionality if not already done
-            const toggleBtn = document.getElementById('toggleFamily');
-            const familyContent = document.getElementById('familyContent');
-            
-            if (toggleBtn && familyContent && !toggleBtn.hasAttribute('data-initialized')) {
-                toggleBtn.setAttribute('data-initialized', 'true');
-                toggleBtn.addEventListener('click', () => {
-                    const isCollapsed = familyContent.classList.contains('collapsed');
-                    if (isCollapsed) {
-                        familyContent.classList.remove('collapsed');
-                        toggleBtn.classList.remove('collapsed');
-                    } else {
-                        familyContent.classList.add('collapsed');
-                        toggleBtn.classList.add('collapsed');
-                    }
-                });
-            }
+        const modalBody = document.querySelector('.modal-body.familymem');
+        if (!modalBody) {
+            console.error('Family modal body not found');
+            return;
         }
 
-        // Update statistics
-        if (totalMembersElement) totalMembersElement.textContent = familyData.total_members.toString();
-        if (activePoliciesElement) activePoliciesElement.textContent = '1'; // We know there's at least 1 policy
+        // Clear existing content
+        modalBody.innerHTML = '';
 
-        // Hide empty state and show tree
-        if (familyEmpty) familyEmpty.classList.add('hidden');
-        if (familyGrid) {
-            familyGrid.classList.remove('hidden');
-            
-            // Clear existing content completely
-            familyGrid.innerHTML = '';
-            
-            // Remove any existing CSS classes that might interfere
-            familyGrid.className = 'family-grid';
-            
-            // Set inline styles to ensure proper layout
-            familyGrid.style.cssText = `
-                display: flex;
-                justify-content: center;
-                align-items: flex-start;
-                margin-top: 1.5rem;
-                padding: 2rem;
-                min-height: 400px;
-                width: 100%;
-            `;
+        // Sort members by relation
+        const principal = familyData.members.find(m => m.relation === 'PRINCIPAL');
+        const spouse = familyData.members.find(m => m.relation === 'SPOUSE');
+        const children = familyData.members.filter(m => m.relation === 'CHILD');
 
-            console.log('Creating family tree with members:', familyData.members);
-            
-            // Create family tree structure
-            const familyTree = this.createFamilyTree(familyData.members);
-            familyGrid.appendChild(familyTree);
-            
-            console.log('Family tree appended to grid. Grid contents:', familyGrid.innerHTML);
-        }
-    }
-
-    createFamilyTree(members) {
-        console.log('createFamilyTree called with members:', members);
-        
-        // Organize members by relation and level
-        const principal = members.find(m => m.relation === 'PRINCIPAL' || m.relation_order === 3);
-        const spouse = members.find(m => m.relation === 'SPOUSE' || m.relation_order === 1);
-        
-        // Group children by their parent's ID
-        const childrenByParent = {};
-        members.filter(m => m.relation === 'CHILD' || m.relation_order === 2).forEach(child => {
-            const parentId = child.parent_id || 'root';
-            if (!childrenByParent[parentId]) {
-                childrenByParent[parentId] = [];
-            }
-            childrenByParent[parentId].push(child);
-        });
-
-        console.log('Organized members:', {
-            principal: principal,
-            spouse: spouse,
-            childrenByParent: childrenByParent
-        });
-
-        // Create main tree container
-        const treeContainer = document.createElement('div');
-        treeContainer.className = 'family-tree';
-
-        // Create parent level container (for principal and spouse)
-        const parentLevel = document.createElement('div');
-        parentLevel.style.cssText = 
-            'display: flex;' +
-            'justify-content: center;' +
-            'align-items: center;' +
-            'gap: 4rem;' +
-            'position: relative;' +
-            'width: 100%;';
-
-        // Add principal and spouse nodes
+        // Add principal
         if (principal) {
-            const principalNode = this.createSimpleTreeNode(principal, 'PRINCIPAL');
-            parentLevel.appendChild(principalNode);
+            const principalDiv = document.createElement('div');
+            principalDiv.className = 'Parent';
+            principalDiv.innerHTML = `
+                <span>${this.escapeHtml(principal.name)}</span>
+                <span>QID: ${this.escapeHtml(principal.national_id)}</span>
+                ${principal.contract_id ? `<span>Indv. ID: ${this.escapeHtml(principal.contract_id)}</span>` : ''}
+            `;
+            modalBody.appendChild(principalDiv);
         }
 
+        // Add spouse
         if (spouse) {
-            const spouseNode = this.createSimpleTreeNode(spouse, 'SPOUSE');
-            parentLevel.appendChild(spouseNode);
-        }
-
-        // Add horizontal line between spouses if both exist
-        if (principal && spouse) {
-            const spouseConnection = document.createElement('div');
-            spouseConnection.className = 'tree-connection horizontal spouse-line';
-            spouseConnection.style.cssText = 
-                'position: absolute;' +
-                'top: 50%;' +
-                'left: 50%;' +
-                'transform: translate(-50%, -50%);' +
-                'width: 80px;' +
-                'height: 2px;' +
-                'background: linear-gradient(90deg, #c2e3da, #9dd4b8);' +
-                'z-index: 1;';
-            parentLevel.appendChild(spouseConnection);
-        }
-
-        treeContainer.appendChild(parentLevel);
-
-        // Function to recursively create child nodes
-        const createChildrenNodes = (parentId, level = 0) => {
-            const children = childrenByParent[parentId];
-            if (!children || children.length === 0) return null;
-
-            // Create container for this level of children
-            const childrenContainer = document.createElement('div');
-            childrenContainer.className = 'children-level level-' + level;
-            childrenContainer.style.cssText = `
-                display: flex;
-                flex-direction: column;
-                align-items: center;
-                gap: 1rem; /* Adjusted gap for rows */
-                margin-top: ${level === 0 ? '2rem' : '1rem'};
-                position: relative;
+            const spouseDiv = document.createElement('div');
+            spouseDiv.className = 'spouse';
+            spouseDiv.innerHTML = `
+                <span>${this.escapeHtml(spouse.name)}</span>
+                <span>QID: ${this.escapeHtml(spouse.national_id)}</span>
+                ${spouse.contract_id ? `<span>Indv. ID: ${this.escapeHtml(spouse.contract_id)}</span>` : ''}
             `;
-
-            // Add vertical line from parent
-            const verticalLine = document.createElement('div');
-            verticalLine.style.cssText = `
-                width: 2px;
-                height: 40px;
-                background: linear-gradient(180deg, #c2e3da, #9dd4b8);
-                margin-bottom: 1rem;
-            `;
-            childrenContainer.appendChild(verticalLine);
-
-            // Process children in pairs
-            for (let i = 0; i < children.length; i += 2) {
-                const childrenPair = children.slice(i, i + 2);
-
-                // Create row for this pair of children
-                const childrenRow = document.createElement('div');
-                childrenRow.style.cssText = `
-                    display: flex;
-                    justify-content: center;
-                    gap: 3rem;
-                    position: relative;
-                    width: 100%; /* Ensure row takes full width */
-                    margin-bottom: 1rem; /* Add margin between rows */
-                `;
-
-                // Add horizontal line connecting children if more than one in the pair
-                if (childrenPair.length > 1) {
-                    const horizontalLine = document.createElement('div');
-                    horizontalLine.style.cssText = `
-                        position: absolute;
-                        top: 50%;
-                        left: 25%; /* Adjusted for two children */
-                        right: 25%; /* Adjusted for two children */
-                        height: 2px;
-                        background: linear-gradient(90deg, #c2e3da, #9dd4b8);
-                        z-index: 1;
-                    `;
-                    childrenRow.appendChild(horizontalLine);
-                }
-
-                // Add child nodes in the pair
-                childrenPair.forEach(child => {
-                    const childWrapper = document.createElement('div');
-                    childWrapper.style.cssText = `
-                        display: flex;
-                        flex-direction: column;
-                        align-items: center;
-                        position: relative;
-                        z-index: 2;
-                    `;
-
-                    const childNode = this.createSimpleTreeNode(child, 'CHILD');
-                    childWrapper.appendChild(childNode);
-
-                    // Recursively add next level of children
-                    const nextLevel = createChildrenNodes(child.national_id, level + 1);
-                    if (nextLevel) {
-                        childWrapper.appendChild(nextLevel);
-                    }
-
-                    childrenRow.appendChild(childWrapper);
-                });
-                childrenContainer.appendChild(childrenRow);
-            }
-            return childrenContainer;
-        };
-
-        // Add root level children
-        const rootChildren = createChildrenNodes('root');
-        if (rootChildren) {
-            treeContainer.appendChild(rootChildren);
+            modalBody.appendChild(spouseDiv);
         }
 
-        console.log('Tree container created:', treeContainer);
-        return treeContainer;
-    }
-
-    createSimpleTreeNode(member, nodeType) {
-        console.log(`Creating simple tree node for ${member.name} as ${nodeType}`);
-        
-        const node = document.createElement('div');
-        node.className = 'family-tree-node';
-        node.setAttribute('data-relation', nodeType);
-        
-        const initials = this.getInitials(member.name);
-        const relationIcon = this.getRelationIcon(member.relation);
-        
-        node.innerHTML = `
-            <div class="family-tree-node-content">
-                <div class="family-tree-node-initials">${initials}</div>
-                <div class="family-tree-node-name">${this.escapeHtml(member.name)}</div>
-                <div class="family-tree-node-relation">${relationIcon} ${this.escapeHtml(nodeType)}</div>
-                <div class="family-tree-node-details">
-                ${member.national_id ? `
-                        <div class="family-tree-node-detail">
-                            <span class="family-tree-node-detail-label">ID</span>
-                            <span class="family-tree-node-detail-value">${this.escapeHtml(member.national_id)}</span>
-                    </div>
-                ` : ''}
-                    <div class="family-tree-node-detail">
-                        <span class="family-tree-node-detail-label">DOB</span>
-                        <span class="family-tree-node-detail-value">${this.formatDate(member.date_of_birth)}</span>
-                    </div>
-                </div>
-            </div>
-        `;
-
-        // Add click event to show member's policy details
-        node.addEventListener('click', () => {
-            this.showMemberPolicyDetails(member);
+        // Add children
+        children.forEach(child => {
+            const childDiv = document.createElement('div');
+            childDiv.className = 'child';
+            childDiv.innerHTML = `
+                <span>${this.escapeHtml(child.name)}</span>
+                <span>QID: ${this.escapeHtml(child.national_id)}</span>
+                ${child.contract_id ? `<span>Indv. ID: ${this.escapeHtml(child.contract_id)}</span>` : ''}
+            `;
+            modalBody.appendChild(childDiv);
         });
-
-        console.log(`Created node for ${member.name}`);
-        return node;
-    }
-
-    getInitials(name) {
-        if (!name) return '?';
-        return name
-            .split(' ')
-            .map(word => word[0])
-            .join('')
-            .toUpperCase()
-            .slice(0, 2);
     }
 
     formatDate(dateString) {
         if (!dateString) return '-';
         try {
-            // Handle different date formats
             const date = new Date(dateString);
             if (isNaN(date.getTime())) {
-                // If direct parsing fails, try to handle different formats
+                // Try different date formats
                 const parts = dateString.split(/[-/]/);
                 if (parts.length === 3) {
-                    // Try different date part arrangements
-                    date = new Date(parts[2], parts[1] - 1, parts[0]); // DD/MM/YYYY
-                    if (isNaN(date.getTime())) {
-                        date = new Date(parts[2], parts[0] - 1, parts[1]); // MM/DD/YYYY
+                    // Try DD/MM/YYYY
+                    const newDate = new Date(parts[2], parts[1] - 1, parts[0]);
+                    if (!isNaN(newDate.getTime())) {
+                        return newDate.toLocaleDateString('en-GB');
+                    }
+                    // Try MM/DD/YYYY
+                    const altDate = new Date(parts[2], parts[0] - 1, parts[1]);
+                    if (!isNaN(altDate.getTime())) {
+                        return altDate.toLocaleDateString('en-GB');
                     }
                 }
+                return dateString;
             }
-            
-            if (!isNaN(date.getTime())) {
-                return date.toLocaleDateString('en-GB'); // Format as DD/MM/YYYY
-            }
-            return dateString; // Return original string if parsing fails
+            return date.toLocaleDateString('en-GB');
         } catch (e) {
             console.error('Error formatting date:', e);
             return dateString || '-';
@@ -1630,8 +1069,8 @@ class InsuranceAssistant {
         }
 
         // Hide suggestions
-        if (this.suggestedQuestions) {
-            this.suggestedQuestions.classList.add('hidden');
+        if (this.suggestContainer) {
+            this.suggestContainer.classList.add('hidden');
         }
 
         // Hide family information
@@ -1651,101 +1090,18 @@ class InsuranceAssistant {
 
         // Reset chat history but keep welcome message
         this.chatHistory = [];
-        
-        // Update submit button state
-        this.updateSubmitButtonState();
-    }
 
-    // New method to display content warnings
-    showContentWarning(message, suggestion, isBlocked = false) {
-        if (!this.answerSection) {
-            this.createResponseStructure(); // Ensure response area exists
-        }
-        
-        // Show the response container
-        const responseContainer = document.querySelector('.response-container');
-        if (responseContainer) {
-            console.log('Response container found in showContentWarning, showing it');
-            responseContainer.classList.remove('hidden');
-            responseContainer.classList.add('show');
-        } else {
-            console.error('Response container not found in showContentWarning!');
-        }
-        
-        let warningHtml = `
-            <div class="content-warning ${isBlocked ? 'blocked' : 'sanitized'}">
-                <div class="warning-icon">${isBlocked ? '🚫' : '⚠️'}</div>
-                <div class="warning-text">
-                    <p class="warning-message">${this.escapeHtml(message)}</p>
-        `;
-        if (suggestion) {
-            warningHtml += `<p class="warning-suggestion">${this.escapeHtml(suggestion)}</p>`;
-        }
-        warningHtml += `</div></div>`;
-        
-        this.answerSection.innerHTML = warningHtml;
-        this.showLoading(false); // Ensure loading indicator is hidden
-    }
-
-    updateUserInfo(data) {
-        if (data && data.answer) {
-            try {
-                // Extract information from the answer
-                const answer = data.answer;
-                let info = {};
-
-                // Try to parse if it's a JSON string
-                if (typeof answer === 'string') {
-                    try {
-                        info = JSON.parse(answer);
-                    } catch {
-                        // If not JSON, parse the text response
-                        const nameMatch = answer.match(/name(?:\s+is)?:\s*([^\n,]+)/i);
-                        const expiryMatch = answer.match(/expiry(?:\s+date)?:\s*([^\n,]+)/i);
-                        const familyMatch = answer.match(/family members?:\s*(\d+)/i);
-                        
-                        info = {
-                            name: nameMatch ? nameMatch[1].trim() : null,
-                            expiry_date: expiryMatch ? expiryMatch[1].trim() : null,
-                            family_count: familyMatch ? familyMatch[1].trim() : null
-                        };
-                    }
-                } else {
-                    info = answer;
-                }
-
-                // Update the display fields
-                this.contractorName.textContent = info.name || info.contractor_name || info.username || '-';
-                this.expiryDate.textContent = info.expiry_date || info.policy_expiry || '-';
-                this.beneficiaryCount.textContent = info.family_count || info.beneficiary_count || info.members_count || '-';
-
-            } catch (e) {
-                console.error('Error parsing user info:', e);
-                this.clearUserInfo();
-            }
-        } else {
-            this.clearUserInfo();
-        }
-    }
-
-    clearUserInfo() {
-        this.contractorName.textContent = '-';
-        this.expiryDate.textContent = '-';
-        this.beneficiaryCount.textContent = '-';
+        // Update send button state
+        this.updateSendButtonState();
     }
 }
 
 console.log('About to initialize InsuranceAssistant');
 
-// Initialize the application
+// Initialize the application when the DOM is loaded
 document.addEventListener('DOMContentLoaded', () => {
-    console.log('DOMContentLoaded event fired');
-    try {
+    console.log('DOM loaded, initializing InsuranceAssistant');
         window.insuranceAssistant = new InsuranceAssistant();
-        console.log('InsuranceAssistant initialized successfully');
-    } catch (error) {
-        console.error('Error initializing InsuranceAssistant:', error);
-    }
 });
 
 console.log('app.js finished loading'); 

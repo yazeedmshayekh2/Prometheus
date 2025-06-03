@@ -3889,7 +3889,7 @@ ANSWER:"""
                         unique_follow_ups.append(q)
             
             # Return exactly 5 questions
-            return unique_follow_ups[:5]
+            return unique_follow_ups[:3]
                 
         except Exception as e:
             print(f"Error generating follow-up questions: {str(e)}")

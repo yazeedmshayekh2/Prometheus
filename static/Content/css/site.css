@@ -116,6 +116,7 @@ iframe {
 
 /* Assistant/bot messages */
 .chat.assistant {
+    background-color: #e9e8e8 !important;
     float: left;
     border-top-left-radius: 0;
     border-top-right-radius: 1.25rem;
@@ -146,21 +147,16 @@ iframe {
 /* List styling in chat messages */
 .chat ul {
     margin-top: 10px;
-    padding-left: 20px;
 }
 
-.chat ul li {
-    list-style: none;
-    margin-bottom: 5px;
-    position: relative;
-    padding-left: 20px;
-}
+    .chat ul li {
+        list-style: none;
+        margin-bottom: 5px;
+    }
 
-.chat ul li:before {
-    content: '✔';
-    position: absolute;
-    left: 0;
-}
+        .chat ul li:before {
+            content: '✔';
+        }
 
 .border-r {
     border-radius: 0.25rem;
@@ -290,3 +286,53 @@ iframe {
         margin-top: 20px;
     }
 }
+
+/* Loading indicator styling */
+.loading-indicator {
+    background-color: rgba(242,242,242,0.6) !important;
+    display: flex !important;
+    align-items: center;
+    gap: 8px;
+}
+
+.loading-text {
+    color: #666;
+}
+
+.loading-dots {
+    display: inline-flex;
+}
+
+.loading-dots span {
+    animation: dots 1.5s infinite;
+    font-size: 20px;
+    line-height: 1;
+}
+
+.loading-dots span:nth-child(2) {
+    animation-delay: 0.2s;
+}
+
+.loading-dots span:nth-child(3) {
+    animation-delay: 0.4s;
+}
+
+@keyframes dots {
+    0%, 20% {
+        opacity: 0;
+        transform: translateY(0);
+    }
+    50% {
+        opacity: 1;
+        transform: translateY(-5px);
+    }
+    80%, 100% {
+        opacity: 0;
+        transform: translateY(0);
+    }
+}
+
+.hidden {
+    display: none !important;
+}
+

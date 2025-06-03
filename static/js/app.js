@@ -8,6 +8,7 @@ class InsuranceAssistant {
         this.chatContainer = document.querySelector('.chatcontainer');
         this.textArea = document.querySelector('.textChat textarea');
         this.sendButton = document.querySelector('.btnSend');
+        this.loadingIndicator = document.getElementById('loadingIndicator');
 
         // User info elements
         this.contractorName = document.getElementById('contractorName');
@@ -131,9 +132,12 @@ class InsuranceAssistant {
 
     async handleNationalIdConfirm(nationalId) {
         try {
+            // Add user's message to chat
+            this.addMessageToChat('user', nationalId);
+            
             // Show loading state
-            this.isLoading = true;
-            this.updateSendButtonState();
+            this.addLoadingIndicator();
+            this.setLoading(true);
             
             const response = await fetch('/api/suggestions', {
                 method: 'POST',
@@ -152,6 +156,9 @@ class InsuranceAssistant {
             const data = await response.json();
             console.log('API Response:', data);
         
+            // Remove loading indicator before adding success message
+            this.removeLoadingIndicator();
+            
         // Mark as confirmed
         this.isNationalIdConfirmed = true;
         this.currentNationalId = nationalId;
@@ -170,7 +177,13 @@ class InsuranceAssistant {
                 const principal = members.find(m => m.national_id === nationalId) || members[0];
                 
                 if (principal) {
-                    this.contractorName.textContent = principal.name || '-';
+                    // Contractor Name = company_name (capitalize)
+                    this.contractorName.textContent = this.capitalizeName(principal.company_name || '-');
+                    // Individual Name = name of the person holding the ID (capitalize)
+                    const individualNameElem = document.querySelector('.col-md-7.name');
+                    if (individualNameElem) {
+                        individualNameElem.textContent = this.capitalizeName(principal.name || '-');
+                    }
                     this.expiryDate.textContent = this.formatDate(principal.end_date) || '-';
                     this.beneficiaryCount.textContent = data.family_data.total_members.toString() || '-';
                 }
@@ -183,13 +196,21 @@ class InsuranceAssistant {
 
         } catch (error) {
             console.error('Error:', error);
+            this.removeLoadingIndicator();
             this.addMessageToChat('assistant', '❌ Failed to verify ID. Please try again.');
             this.isNationalIdConfirmed = false;
             this.clearUserInfo();
         } finally {
-            this.isLoading = false;
-            this.updateSendButtonState();
+            this.setLoading(false);
         }
+    }
+
+    capitalizeName(name) {
+        if (!name) return '';
+        return name
+            .split(' ')
+            .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+            .join(' ');
     }
 
     async handleQuestionSubmit(question) {
@@ -199,68 +220,35 @@ class InsuranceAssistant {
         }
 
         try {
-            console.log('Submitting question:', question);
-            this.setLoading(true);
-            
-            // Add user message to chat
+            // Add user's message to chat
             this.addMessageToChat('user', question);
             
-            // Send to API
-            console.log('Sending request to API:', {
-                national_id: this.currentNationalId,
-                question: question,
-                chat_history: this.chatHistory
-            });
+            // Show loading state
+            this.addLoadingIndicator();
+            this.setLoading(true);
 
-            const response = await fetch('/api/query', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    national_id: this.currentNationalId,
-                    question: question,
-                    chat_history: this.chatHistory
-                })
-            });
-
-            console.log('API Response status:', response.status);
+            // Query the API
+            const response = await this.queryAPI(this.currentNationalId, question);
             
-            if (!response.ok) {
-                const errorData = await response.json();
-                console.error('API Error:', errorData);
-                throw new Error(errorData.detail?.message || errorData.detail || `Error: ${response.status}`);
+            // Remove loading before showing response
+            this.removeLoadingIndicator();
+
+            if (response) {
+                // Add assistant's response to chat
+                this.addMessageToChat('assistant', response.answer);
+
+                // Update suggested questions if available
+                if (response.suggested_questions) {
+                    this.displaySuggestedQuestions(response.suggested_questions);
+                }
             }
 
-            const data = await response.json();
-            console.log('API Response data:', data);
-            
-            if (data?.answer) {
-                // Add assistant message to chat
-                this.addMessageToChat('assistant', data.answer);
-                
-                // Update user info if available
-                this.updateUserInfo(data);
-                
-                // Show suggested questions if available
-                if (data.suggested_questions && data.suggested_questions.length > 0) {
-                    this.displaySuggestedQuestions(data.suggested_questions);
-                }
-                
-                // Update PDF viewer if available
-                if (data.pdf_info) {
-                    await this.displayPDF(data.pdf_info);
-                }
-            } else {
-                console.error('No answer in response:', data);
-                throw new Error('No answer received from server');
-            }
         } catch (error) {
             console.error('Error submitting question:', error);
-            this.showErrorMessage(error.message || 'Failed to get response from server');
+            this.removeLoadingIndicator();
+            this.addMessageToChat('assistant', 'Sorry, I encountered an error processing your request. Please try again.');
         } finally {
             this.setLoading(false);
-            this.updateSendButtonState();
         }
     }
     
@@ -279,7 +267,7 @@ class InsuranceAssistant {
         const messageDiv = document.createElement('div');
         // Use 'user' class for user messages, 'assistant' for system messages
         messageDiv.className = `chat ${role === 'user' ? 'user' : 'assistant'}`;
-        
+
         // Set content with proper formatting
         messageDiv.innerHTML = role === 'assistant' 
             ? this.markdownToHtml(content)
@@ -287,9 +275,9 @@ class InsuranceAssistant {
         
         // Add message to container
         if (this.chatContainer) {
-            this.chatContainer.appendChild(messageDiv);
-            // Scroll to bottom
-            this.chatContainer.scrollTop = this.chatContainer.scrollHeight;
+        this.chatContainer.appendChild(messageDiv);
+        // Scroll to bottom
+        this.chatContainer.scrollTop = this.chatContainer.scrollHeight;
         }
         
         console.log('Message added to chat');
@@ -297,14 +285,8 @@ class InsuranceAssistant {
 
     setLoading(isLoading) {
         this.isLoading = isLoading;
-        if (this.sendButton) {
-            this.sendButton.disabled = isLoading;
-            this.sendButton.style.opacity = isLoading ? '0.5' : '1';
-            this.sendButton.style.cursor = isLoading ? 'not-allowed' : 'pointer';
-        }
-        if (this.textArea) {
-            this.textArea.disabled = isLoading;
-        }
+        this.showLoading(isLoading);
+        this.updateSendButtonState();
     }
 
     showSuccessMessage() {
@@ -455,7 +437,10 @@ class InsuranceAssistant {
             return;
         }
 
-        questions.forEach(question => {
+        // Take only the first 3 questions
+        const limitedQuestions = questions.slice(0, 3);
+
+        limitedQuestions.forEach(question => {
             let cleanQuestion = question
                 .replace(/\[\d*\]/g, '')
                 .replace(/\*\*Question\s*(?:#?\d+|):\*\*\s*/i, '')
@@ -526,17 +511,27 @@ class InsuranceAssistant {
     }
 
     showLoading(show) {
-        // Show response container during loading, but only show the loading indicator
-        const responseContainer = document.querySelector('.response-container');
-        if (responseContainer && show) {
-            console.log('Showing response container for loading');
-            responseContainer.classList.remove('hidden');
-            responseContainer.classList.add('show');
+        if (!this.loadingIndicator) {
+            this.loadingIndicator = document.getElementById('loadingIndicator');
         }
         
-        this.loadingIndicator.classList.toggle('hidden', !show);
-        this.responseContent.classList.toggle('hidden', show);
-        this.sendButton.disabled = show;
+        if (this.loadingIndicator) {
+            if (show) {
+                this.loadingIndicator.classList.remove('hidden');
+            } else {
+                this.loadingIndicator.classList.add('hidden');
+            }
+        }
+        
+        // Disable input while loading
+        if (this.textArea) {
+            this.textArea.disabled = show;
+        }
+        if (this.sendButton) {
+            this.sendButton.disabled = show;
+            this.sendButton.style.opacity = show ? '0.5' : '1';
+            this.sendButton.style.cursor = show ? 'not-allowed' : 'pointer';
+        }
     }
 
     // Separate loading method for National ID processing that doesn't show response container
@@ -1093,6 +1088,34 @@ class InsuranceAssistant {
 
         // Update send button state
         this.updateSendButtonState();
+    }
+
+    addLoadingIndicator() {
+        if (!this.chatContainer) return;
+
+        // Remove any existing loading indicator first
+        this.removeLoadingIndicator();
+
+        // Create new loading indicator
+        const loadingDiv = document.createElement('div');
+        loadingDiv.id = 'loadingIndicator';
+        loadingDiv.className = 'chat assistant loading-indicator';
+        loadingDiv.innerHTML = `
+            <span class="loading-text">Processing your request</span>
+            <span class="loading-dots"><span>.</span><span>.</span><span>.</span></span>
+        `;
+        
+        this.chatContainer.appendChild(loadingDiv);
+        this.chatContainer.scrollTop = this.chatContainer.scrollHeight;
+    }
+
+    removeLoadingIndicator() {
+        if (!this.chatContainer) return;
+        
+        const loadingIndicator = this.chatContainer.querySelector('#loadingIndicator');
+        if (loadingIndicator) {
+            loadingIndicator.remove();
+        }
     }
 }
 

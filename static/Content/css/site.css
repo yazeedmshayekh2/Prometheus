@@ -81,7 +81,7 @@ iframe {
 /* Base chat message styles */
 .chat {
     font-size: 9pt;
-    background-color: #e9e8e8;
+    background-color: rgba(242,242,242,0.6) !important;
     padding: 20px;
     border-radius: 1.25rem;
     margin-bottom: 10px;
@@ -96,7 +96,7 @@ iframe {
 /* User messages */
 .chat.user {
     float: right;
-    background-color: #e9e8e8;
+    background-color: #e9e8e8 !important;
     border-top-right-radius: 0;
     border-top-left-radius: 1.25rem;
     margin-left: auto;
@@ -108,7 +108,7 @@ iframe {
     content: '';
     position: absolute;
     border: 17px solid transparent;
-    border-top: 17px solid rgba(242, 242, 242, 0.6);
+    border-top: 17px solid #e9e8e8 !important;
     top: 0;
     right: -10px;
     left: auto;
@@ -116,7 +116,7 @@ iframe {
 
 /* Assistant/bot messages */
 .chat.assistant {
-    background-color: #e9e8e8 !important;
+    background-color: rgba(242,242,242,0.6) !important;
     float: left;
     border-top-left-radius: 0;
     border-top-right-radius: 1.25rem;
@@ -139,7 +139,7 @@ iframe {
     content: '';
     position: absolute;
     border: 17px solid transparent;
-    border-top: 17px solid rgba(242,242,242,0.6);
+    border-top: 17px solid rgba(242,242,242,0.6) !important;
     top: 0;
     left: -10px;
 }
@@ -336,3 +336,88 @@ iframe {
     display: none !important;
 }
 
+.searchresult a{
+    text-decoration: none !important;
+}
+
+.modal-dialog.modal-lg {
+    max-width: 90%;
+    margin: 1.75rem auto;
+}
+
+#TOBModal .modal-content {
+    height: 90vh;
+    display: flex;
+    flex-direction: column;
+}
+
+#TOBModal .modal-body {
+    flex: 1;
+    padding: 1rem;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+}
+
+#pdfLoadingIndicator {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 1;
+}
+
+#pdfErrorMessage {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 1;
+    min-width: 300px;
+    text-align: center;
+}
+
+#pdfFrame {
+    flex: 1;
+    min-height: 0;
+    width: 100%;
+    border: none;
+    background: #f8f9fa;
+}
+
+/* Add smooth transitions */
+#pdfFrame, #pdfLoadingIndicator, #pdfErrorMessage {
+    transition: opacity 0.3s ease-in-out;
+}
+
+/* Ensure the modal appears above other content */
+#TOBModal {
+    z-index: 1050;
+}
+
+/* Add a subtle box shadow to the modal */
+#TOBModal .modal-content {
+    box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+}
+
+/* Style the close button */
+#TOBModal .btn-close {
+    opacity: 0.5;
+    transition: opacity 0.2s ease-in-out;
+}
+
+#TOBModal .btn-close:hover {
+    opacity: 1;
+}
+
+/* Add responsive styles */
+@media (max-width: 768px) {
+    .modal-dialog.modal-lg {
+        max-width: 95%;
+        margin: 1rem auto;
+    }
+
+    #TOBModal .modal-content {
+        height: 95vh;
+    }
+}

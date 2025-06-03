@@ -9,7 +9,7 @@
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.11.6/dist/umd/popper.min.js"></script>
     <script src="Content/css/bootstrap/js/bootstrap.js"></script>
-    <link rel="icon" type="image/x-icon" href="Content/img/dig-sm-logo.png">
+    <link rel="icon" type="image/x-icon" href="Content/img/dig-sm-logo-w.png">
 </head>
 <body>
     <div class="container">
@@ -116,15 +116,25 @@
     </div>
 
     <!-- Modals -->
+
     <div class="modal fade" id="TOBModal" tabindex="-1" aria-labelledby="TOBModalLabel" aria-hidden="true">
-        <div class="modal-dialog modal-lg">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
             <div class="modal-content">
                 <div class="modal-header">
-                    <h1 class="modal-title fs-5 text-center" id="TOBModalLabel">[Company Name] TOB</h1>
+                    <h1 class="modal-title fs-5 text-center" id="TOBModalLabel">TOB</h1>
                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
                 <div class="modal-body">
-                    <iframe src="about:blank"></iframe>
+                    <div id="pdfLoadingIndicator" class="text-center" style="display: none;">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">Loading PDF...</span>
+                        </div>
+                        <p class="mt-2">Loading PDF...</p>
+                    </div>
+                    <div id="pdfErrorMessage" class="alert alert-danger" style="display: none;">
+                        Failed to load PDF. Please try again later.
+                    </div>
+                    <iframe id="pdfFrame" style="width: 100%; height: 80vh; border: none;"></iframe>
                 </div>
             </div>
         </div>

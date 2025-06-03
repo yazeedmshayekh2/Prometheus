@@ -158,10 +158,10 @@ class InsuranceAssistant {
         
             // Remove loading indicator before adding success message
             this.removeLoadingIndicator();
-            
-        // Mark as confirmed
-        this.isNationalIdConfirmed = true;
-        this.currentNationalId = nationalId;
+        
+            // Mark as confirmed
+            this.isNationalIdConfirmed = true;
+            this.currentNationalId = nationalId;
         
             // Add confirmation message to chat
             this.addMessageToChat('assistant', '✅ ID verified successfully. How can I help you with your policy today?');
@@ -171,21 +171,64 @@ class InsuranceAssistant {
                 this.textArea.placeholder = 'Ask anything about your policy...';
             }
 
-            // Update user info display
+            // Update user info display and handle PDF
             if (data?.family_data?.members) {
                 const members = data.family_data.members;
                 const principal = members.find(m => m.national_id === nationalId) || members[0];
                 
                 if (principal) {
-                    // Contractor Name = company_name (capitalize)
-                    this.contractorName.textContent = this.capitalizeName(principal.company_name || '-');
-                    // Individual Name = name of the person holding the ID (capitalize)
-                    const individualNameElem = document.querySelector('.col-md-7.name');
-                    if (individualNameElem) {
-                        individualNameElem.textContent = this.capitalizeName(principal.name || '-');
+                    // Set contractor name as company name
+                    this.contractorName.textContent = this.capitalizeWords(principal.company_name || '-');
+                    
+                    // Set individual name in the appropriate field
+                    const individualNameElement = document.querySelector('.name.col-md-7');
+                    if (individualNameElement) {
+                        individualNameElement.textContent = this.capitalizeWords(principal.name || '-');
                     }
+                    
                     this.expiryDate.textContent = this.formatDate(principal.end_date) || '-';
                     this.beneficiaryCount.textContent = data.family_data.total_members.toString() || '-';
+
+                    // Try to get PDF info from different possible sources
+                    let pdfInfo = null;
+
+                    // First try the direct pdf_info from the response
+                    if (data.pdf_info?.pdf_link) {
+                        pdfInfo = {
+                            pdf_link: data.pdf_info.pdf_link,
+                            company_name: data.pdf_info.company_name || principal.company_name || 'DIG'
+                        };
+                    }
+                    // Then try the principal member's PDF link
+                    else if (principal.pdf_link) {
+                        pdfInfo = {
+                            pdf_link: principal.pdf_link,
+                            company_name: principal.company_name || 'DIG'
+                        };
+                    }
+                    // Finally, look through other family members for a PDF link
+                    else {
+                        const memberWithPdf = members.find(m => m.pdf_link);
+                        if (memberWithPdf) {
+                            pdfInfo = {
+                                pdf_link: memberWithPdf.pdf_link,
+                                company_name: memberWithPdf.company_name || principal.company_name || 'DIG'
+                            };
+                        }
+                    }
+
+                    // Display PDF if we found any PDF information
+                    if (pdfInfo) {
+                        console.log('Displaying PDF with info:', pdfInfo);
+                        try {
+                            await this.displayPDF(pdfInfo);
+                        } catch (error) {
+                            console.error('Error displaying PDF:', error);
+                            this.showErrorMessage('Failed to display PDF. Please try again later.');
+                        }
+                    } else {
+                        console.log('No PDF link available in the response');
+                    }
                 }
             }
 
@@ -205,10 +248,9 @@ class InsuranceAssistant {
         }
     }
 
-    capitalizeName(name) {
-        if (!name) return '';
-        return name
-            .split(' ')
+    capitalizeWords(str) {
+        if (!str || str === '-') return str;
+        return str.split(' ')
             .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
             .join(' ');
     }
@@ -462,7 +504,9 @@ class InsuranceAssistant {
         });
         
         this.suggestContainer.style.display = 'block';
-    }
+
+        
+    }   
     
 
     hideSuggestedQuestions() {
@@ -543,81 +587,6 @@ class InsuranceAssistant {
         // For now, just disable the button to indicate processing
     }
 
-    displayResponse(response) {
-        if (!response) {
-            const responseContainer = document.querySelector('.response-container');
-            if (responseContainer) {
-                console.log('No response received, hiding response container');
-                responseContainer.classList.remove('show');
-                responseContainer.classList.add('hidden');
-            }
-            return;
-        }
-
-        if (!this.answerSection) {
-            console.error('Answer section element not found in displayResponse');
-            return;
-        }
-
-        // Show the response container
-        const responseContainer = document.querySelector('.response-container');
-        if (responseContainer) {
-            console.log('Response container found, showing it');
-            responseContainer.classList.remove('hidden');
-            responseContainer.classList.add('show');
-        } else {
-            console.error('Response container not found!');
-        }
-
-        // Create or get the chat container
-        let chatContainer = this.answerSection.querySelector('.chatcontainer');
-        if (!chatContainer) {
-            chatContainer = document.createElement('div');
-            chatContainer.className = 'chatcontainer';
-            this.answerSection.appendChild(chatContainer);
-        }
-
-        // Display the entire conversation history
-        chatContainer.innerHTML = '';
-        this.chatHistory.forEach((message, index) => {
-            const messageDiv = document.createElement('div');
-            messageDiv.className = 'chat';
-            
-            // Add specific styling based on the role
-            if (message.role === 'user') {
-                messageDiv.style.cssText = `
-                    float: right;
-                    background-color: #e9e8e8;
-                    clear: both;
-                `;
-            } else {
-                messageDiv.style.cssText = `
-                    float: left;
-                    background-color: #f2f2f2;
-                    clear: both;
-                `;
-            }
-
-            // Convert markdown to HTML for assistant messages
-            const content = message.role === 'assistant' 
-                ? this.markdownToHtml(message.content)
-                : this.escapeHtml(message.content);
-            
-            messageDiv.innerHTML = content;
-            chatContainer.appendChild(messageDiv);
-        });
-
-        // Scroll to the bottom of the chat container
-        chatContainer.scrollTop = chatContainer.scrollHeight;
-
-        // Handle PDF display if needed
-        if (response.pdf_info && response.pdf_info.pdf_link) {
-            if (!this.isPdfLoaded || this.currentPdfLink !== response.pdf_info.pdf_link) {
-                this.displayPDF(response.pdf_info);
-            }
-        }
-    }
-
     async displayPDF(pdfInfo) {
         if (!pdfInfo || !pdfInfo.pdf_link) {
             console.error('No PDF info provided');
@@ -625,15 +594,35 @@ class InsuranceAssistant {
         }
 
         try {
-            // Update TOB modal title
+            // Get modal elements
+            const modal = document.querySelector('#TOBModal');
             const modalTitle = document.querySelector('#TOBModalLabel');
+            const pdfFrame = document.querySelector('#pdfFrame');
+            const loadingIndicator = document.querySelector('#pdfLoadingIndicator');
+            const errorMessage = document.querySelector('#pdfErrorMessage');
+
+            // Show loading indicator
+            if (loadingIndicator) {
+                loadingIndicator.style.display = 'block';
+            }
+            if (errorMessage) {
+                errorMessage.style.display = 'none';
+            }
+            if (pdfFrame) {
+                pdfFrame.style.display = 'none';
+            }
+
+            // Update modal title
             if (modalTitle) {
                 modalTitle.textContent = `${pdfInfo.company_name || 'Company'} TOB`;
             }
 
-            // Update iframe source
-            const pdfFrame = document.querySelector('#TOBModal iframe');
-            if (pdfFrame) {
+            // Show modal
+            if (modal && !modal.classList.contains('show')) {
+                const bootstrapModal = new bootstrap.Modal(modal);
+                bootstrapModal.show();
+            }
+
             // Create a blob URL for the PDF
             const response = await fetch('/api/pdf', {
                 method: 'POST',
@@ -644,23 +633,50 @@ class InsuranceAssistant {
             });
 
             if (!response.ok) {
-                const errorData = await response.json();
-                throw new Error(errorData.detail || `Failed to fetch PDF: ${response.status}`);
+                throw new Error(`Failed to fetch PDF: ${response.status}`);
             }
 
             const pdfBlob = await response.blob();
             const pdfUrl = URL.createObjectURL(pdfBlob);
+
+            // Update iframe source and show it
+            if (pdfFrame) {
+                pdfFrame.onload = () => {
+                    // Hide loading indicator and show PDF
+                    if (loadingIndicator) {
+                        loadingIndicator.style.display = 'none';
+                    }
+                    pdfFrame.style.display = 'block';
+                };
+
+                pdfFrame.onerror = () => {
+                    throw new Error('Failed to load PDF in iframe');
+                };
+
                 pdfFrame.src = pdfUrl;
+            }
 
             // Clean up the blob URL after a delay to ensure it loads
             setTimeout(() => {
                 URL.revokeObjectURL(pdfUrl);
             }, 5000);
-            }
 
         } catch (error) {
             console.error('Error displaying PDF:', error);
-            this.showErrorMessage('Failed to load PDF document. Please try again later.');
+            const loadingIndicator = document.querySelector('#pdfLoadingIndicator');
+            const errorMessage = document.querySelector('#pdfErrorMessage');
+            const pdfFrame = document.querySelector('#pdfFrame');
+
+            if (loadingIndicator) {
+                loadingIndicator.style.display = 'none';
+            }
+            if (errorMessage) {
+                errorMessage.style.display = 'block';
+                errorMessage.textContent = 'Failed to load PDF. Please try again later.';
+            }
+            if (pdfFrame) {
+                pdfFrame.style.display = 'none';
+            }
         }
     }
 
@@ -753,6 +769,260 @@ class InsuranceAssistant {
 
     clearUserInfo() {
         this.contractorName.textContent = '-';
+        this.expiryDate.textContent = '-';
+        this.beneficiaryCount.textContent = '-';
+    }
+
+    createResponseStructure() {
+        console.log('createResponseStructure called');
+        console.log('Initial element states:', {
+            responseContent: !!this.responseContent,
+            answerSection: !!this.answerSection
+        });
+
+        // Only create if elements don't exist
+        if (!this.responseContent || !this.answerSection) {
+            const responseContainer = document.querySelector('.response-container');
+            console.log('Response container found:', !!responseContainer);
+            if (!responseContainer) {
+                console.error('Response container not found, creating structure');
+                const main = document.querySelector('main');
+                if (main) {
+                    const container = document.createElement('div');
+                    container.className = 'response-container';
+                    
+                    const loadingIndicator = document.createElement('div');
+                    loadingIndicator.id = 'loadingIndicator';
+                    loadingIndicator.className = 'loading-indicator hidden';
+                    loadingIndicator.innerHTML = `
+                        <div class="spinner"></div>
+                        <p>Processing user's policies...</p>
+                    `;
+                    
+                    const responseContent = document.createElement('div');
+                    responseContent.id = 'responseContent';
+                    responseContent.className = 'response-content';
+                    
+                    const answerSection = document.createElement('div');
+                    answerSection.id = 'answer';
+                    answerSection.className = 'answer-section';
+                    
+                    responseContent.appendChild(answerSection);
+                    container.appendChild(loadingIndicator);
+                    container.appendChild(responseContent);
+                    main.appendChild(container);
+                    
+                    // Update the references
+                    this.responseContent = responseContent;
+                    this.loadingIndicator = loadingIndicator;
+                    this.answerSection = answerSection;
+                }
+            } else {
+                // If container exists but elements don't, create them
+                if (!this.loadingIndicator) {
+                    this.loadingIndicator = responseContainer.querySelector('#loadingIndicator');
+                }
+                if (!this.responseContent) {
+                    this.responseContent = responseContainer.querySelector('#responseContent');
+                }
+                if (!this.answerSection) {
+                    this.answerSection = responseContainer.querySelector('#answer');
+                }
+            }
+        }
+
+        console.log('Final element states:', {
+            responseContent: !!this.responseContent,
+            answerSection: !!this.answerSection,
+            loadingIndicator: !!this.loadingIndicator
+        });
+    }
+
+    initializeTheme() {
+        // Get saved theme from localStorage or default to light
+        const savedTheme = localStorage.getItem('theme') || 'light';
+        this.setTheme(savedTheme);
+    }
+
+    setTheme(theme) {
+        document.documentElement.setAttribute('data-theme', theme);
+        localStorage.setItem('theme', theme);
+        
+        if (this.themeToggle) {
+            const themeIcon = this.themeToggle.querySelector('.theme-icon');
+            const themeText = this.themeToggle.querySelector('.theme-text');
+            
+            if (theme === 'dark') {
+                themeIcon.textContent = '☀️';
+                themeText.textContent = 'Light';
+            } else {
+                themeIcon.textContent = '🌙';
+                themeText.textContent = 'Dark';
+            }
+        }
+    }
+
+    toggleTheme() {
+        const currentTheme = document.documentElement.getAttribute('data-theme');
+        const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+        this.setTheme(newTheme);
+    }
+
+    displayResponse(response) {
+        if (!response) {
+            const responseContainer = document.querySelector('.response-container');
+            if (responseContainer) {
+                console.log('No response received, hiding response container');
+                responseContainer.classList.remove('show');
+                responseContainer.classList.add('hidden');
+            }
+            return;
+        }
+
+        if (!this.answerSection) {
+            console.error('Answer section element not found in displayResponse');
+            return;
+        }
+
+        // Show the response container
+        const responseContainer = document.querySelector('.response-container');
+        if (responseContainer) {
+            console.log('Response container found, showing it');
+            responseContainer.classList.remove('hidden');
+            responseContainer.classList.add('show');
+        } else {
+            console.error('Response container not found!');
+        }
+
+        // Create or get the chat container
+        let chatContainer = this.answerSection.querySelector('.chatcontainer');
+        if (!chatContainer) {
+            chatContainer = document.createElement('div');
+            chatContainer.className = 'chatcontainer';
+            this.answerSection.appendChild(chatContainer);
+        }
+
+        // Display the entire conversation history
+        chatContainer.innerHTML = '';
+        this.chatHistory.forEach((message, index) => {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'chat';
+            
+            // Add specific styling based on the role
+            if (message.role === 'user') {
+                messageDiv.style.cssText = `
+                    float: right;
+                    background-color: #e9e8e8;
+                    clear: both;
+                `;
+            } else {
+                messageDiv.style.cssText = `
+                    float: left;
+                    background-color: #f2f2f2;
+                    clear: both;
+                `;
+            }
+
+            // Convert markdown to HTML for assistant messages
+            const content = message.role === 'assistant' 
+                ? this.markdownToHtml(message.content)
+                : this.escapeHtml(message.content);
+            
+            messageDiv.innerHTML = content;
+            chatContainer.appendChild(messageDiv);
+        });
+
+        // Scroll to the bottom of the chat container
+        chatContainer.scrollTop = chatContainer.scrollHeight;
+    }
+
+    showContentWarning(message, suggestion, isBlocked = false) {
+        if (!this.answerSection) {
+            this.createResponseStructure(); // Ensure response area exists
+        }
+        
+        // Show the response container
+        const responseContainer = document.querySelector('.response-container');
+        if (responseContainer) {
+            console.log('Response container found in showContentWarning, showing it');
+            responseContainer.classList.remove('hidden');
+            responseContainer.classList.add('show');
+        } else {
+            console.error('Response container not found in showContentWarning!');
+        }
+        
+        let warningHtml = `
+            <div class="content-warning ${isBlocked ? 'blocked' : 'sanitized'}">
+                <div class="warning-icon">${isBlocked ? '🚫' : '⚠️'}</div>
+                <div class="warning-text">
+                    <p class="warning-message">${this.escapeHtml(message)}</p>
+        `;
+        if (suggestion) {
+            warningHtml += `<p class="warning-suggestion">${this.escapeHtml(suggestion)}</p>`;
+        }
+        warningHtml += `</div></div>`;
+        
+        this.answerSection.innerHTML = warningHtml;
+        this.showLoading(false); // Ensure loading indicator is hidden
+    }
+
+    updateUserInfo(data) {
+        if (data && data.answer) {
+            try {
+                // Extract information from the answer
+                const answer = data.answer;
+                let info = {};
+
+                // Try to parse if it's a JSON string
+                if (typeof answer === 'string') {
+                    try {
+                        info = JSON.parse(answer);
+                    } catch {
+                        // If not JSON, parse the text response
+                        const nameMatch = answer.match(/name(?:\s+is)?:\s*([^\n,]+)/i);
+                        const companyMatch = answer.match(/company(?:\s+name)?:\s*([^\n,]+)/i);
+                        const expiryMatch = answer.match(/expiry(?:\s+date)?:\s*([^\n,]+)/i);
+                        const familyMatch = answer.match(/family members?:\s*(\d+)/i);
+                        
+                        info = {
+                            name: nameMatch ? nameMatch[1].trim() : null,
+                            company_name: companyMatch ? companyMatch[1].trim() : null,
+                            expiry_date: expiryMatch ? expiryMatch[1].trim() : null,
+                            family_count: familyMatch ? familyMatch[1].trim() : null
+                        };
+                    }
+                } else {
+                    info = answer;
+                }
+
+                // Update the display fields
+                // Set contractor name as company name
+                this.contractorName.textContent = this.capitalizeWords(info.company_name || '-');
+                
+                // Set individual name
+                const individualNameElement = document.querySelector('.name.col-md-7');
+                if (individualNameElement) {
+                    individualNameElement.textContent = this.capitalizeWords(info.name || '-');
+                }
+                
+                this.expiryDate.textContent = info.expiry_date || info.policy_expiry || '-';
+                this.beneficiaryCount.textContent = info.family_count || info.beneficiary_count || info.members_count || '-';
+
+            } catch (e) {
+                console.error('Error parsing user info:', e);
+                this.clearUserInfo();
+            }
+            } else {
+            this.clearUserInfo();
+        }
+    }
+
+    clearUserInfo() {
+        this.contractorName.textContent = '-';
+        const individualNameElement = document.querySelector('.name.col-md-7');
+        if (individualNameElement) {
+            individualNameElement.textContent = '-';
+        }
         this.expiryDate.textContent = '-';
         this.beneficiaryCount.textContent = '-';
     }
@@ -1116,6 +1386,101 @@ class InsuranceAssistant {
         if (loadingIndicator) {
             loadingIndicator.remove();
         }
+    }
+
+    // Enhanced test methods for PDF functionality
+    async testPDFSystem() {
+        console.log('=== Starting PDF System Test ===');
+        
+        // Test 1: Check if modal elements exist
+        const modal = document.querySelector('#TOBModal');
+        const iframe = document.querySelector('#TOBModal iframe');
+        const modalTitle = document.querySelector('#TOBModalLabel');
+        
+        console.log('DOM Elements Check:', {
+            'Modal exists': !!modal,
+            'Iframe exists': !!iframe,
+            'Modal title exists': !!modalTitle
+        });
+
+        // Test 2: Test with a local PDF (relative path)
+        console.log('\nTest 1: Testing with relative path');
+        await this.testPDFDisplay('/Content/sample.pdf', 'Local Test');
+        
+        // Test 3: Test with an absolute URL
+        console.log('\nTest 2: Testing with absolute URL');
+        await this.testPDFDisplay('https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf', 'External Test');
+
+        // Test 4: Test API endpoint
+        console.log('\nTest 3: Testing API endpoint');
+        try {
+            const response = await fetch('/api/pdf', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    pdf_link: '/Content/sample.pdf'
+                })
+            });
+            console.log('API Test Response:', {
+                status: response.status,
+                ok: response.ok,
+                contentType: response.headers.get('content-type')
+            });
+        } catch (error) {
+            console.error('API Test Error:', error);
+        }
+    }
+
+    // Enhanced PDF display test
+    async testPDFDisplay(testPdfLink = '/Content/sample.pdf', companyName = 'Test Company') {
+        console.log(`\nTesting PDF display for: ${testPdfLink}`);
+        console.log('Test Parameters:', { testPdfLink, companyName });
+        
+        try {
+            // First, ensure the modal is ready
+            const modal = document.querySelector('#TOBModal');
+            if (modal && !modal.classList.contains('show')) {
+                console.log('Opening modal for test...');
+                const bootstrapModal = new bootstrap.Modal(modal);
+                bootstrapModal.show();
+            }
+
+            // Attempt to display the PDF
+            await this.displayPDF({
+                pdf_link: testPdfLink,
+                company_name: companyName
+            });
+
+            console.log('PDF display attempt completed');
+        } catch (error) {
+            console.error('Test PDF Display Error:', error);
+        }
+    }
+
+    // Add a method to check PDF loading status
+    checkPDFLoadStatus(iframe) {
+        return new Promise((resolve) => {
+            if (!iframe) {
+                resolve({ success: false, error: 'No iframe found' });
+                return;
+            }
+
+            const timeoutId = setTimeout(() => {
+                resolve({ success: false, error: 'Loading timeout' });
+            }, 10000); // 10 second timeout
+
+            iframe.onload = () => {
+                clearTimeout(timeoutId);
+                resolve({ success: true });
+            };
+
+            iframe.onerror = (error) => {
+                clearTimeout(timeoutId);
+                resolve({ success: false, error: error });
+            };
+        });
     }
 }
 

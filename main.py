@@ -536,6 +536,10 @@ class DocumentQASystem:
         
         # Load cached data
         self._load_cached_data()
+        
+        # Add conversation memory
+        self.conversation_memory: List[Dict[str, str]] = []
+        self.max_memory_length = 5  # Store last 5 exchanges
 
     def _initialize_paths(self):
         """Initialize all path attributes"""
@@ -3769,31 +3773,91 @@ General Insurance Guidelines:
 
     def _generate_intelligent_response(self, question: str, context: str) -> str:
         """
-        Generate intelligent response using Qwen2.5 with optimized prompting
+        Generate intelligent response using Qwen2.5 with optimized prompting and conversation memory
         """
         try:
-            prompt = f"""Based on the following insurance policy information, provide a clear and direct answer to the question.
+            conversation_history = self._format_conversation_history()
+            
+            prompt = f"""Based on the following insurance policy information and our conversation history, provide a friendly and simple answer to the question.
 
 POLICY INFORMATION:
 {context}
 
-QUESTION: {question}
+{conversation_history}
+
+CURRENT QUESTION: {question}
 
 INSTRUCTIONS:
-- Remember that the user may not be an insurance or medical expert
-- Provide a direct, specific answer based only on the policy information above
-- Pay close attention to the differences between inpatient and outpatient services when formulating the answer.
-- Use **bold** formatting for important amounts (e.g., **QR 5,000**)
-- Use **bold** formatting for percentages (e.g., **20%**)
-- If coverage exists, clearly state what is covered in simple terms
-- If there are limitations, explain them in easy-to-understand language
-- If information is not available in the policies, state that clearly
-- Be concise but complete and helpful
-- Be focused and avoid unnecessary technical jargon
+- Consider our previous conversation when providing your answer
+- If the current question relates to previous topics, acknowledge that connection
+- Start with a friendly greeting or acknowledgment
+- Use simple, everyday language that anyone can understand
+- Break down complex insurance terms into simple explanations
+- Format the response with proper spacing:
+  • Add double line breaks between main sections (e.g., between Inpatient and Outpatient coverage)
+  • Keep related points together without extra line breaks
+  • Use single line for bullet points within the same category
+  • Start each main section with a clear heading
+- Please remove the breaks between the points like this:
+  • Normal Delivery: **QR 5,000**
+  • Cesarean Section: **QR 7,500**
+  • Miscarriage/Legal Abortion: **QR 7,500**
+  • Hospital cash benefit: Up to **QR 200** per night
+  • Coinsurance: **0%** for consultations
+  • Deductible: **QR 50** per consultation
+  not like this:
+  • Normal Delivery: **QR 5,000**
+  • 
+  • 
+  • Deductible: **QR 50** per consultation
+- For coverage details:
+  • Start with "I'm happy to help you understand..."
+  • Clearly state if something is covered or not
+  • Use **bold** for important amounts (e.g., **QR 5,000**)
+  • Use **bold** for percentages (e.g., **20%**)
+  • List related items without line breaks between them
+- For limitations:
+  • Start with "Please note..."
+  • Explain limitations in a helpful, constructive way
+  • Group related limitations together
+- If referencing previous conversation:
+  • "As we discussed earlier..."
+  • "Building on our previous conversation..."
+- End with a supportive closing statement
+- If information is not available, be honest and suggest next steps
+- Keep the tone warm and helpful throughout
+
+FORMATTING EXAMPLE:
+
+I'm happy to help you understand your coverage.
+
+Inpatient Coverage:
+
+✓ Normal Delivery: **QR 5,000**
+✓ Cesarean Section: **QR 7,500**
+✓ Miscarriage/Legal Abortion: **QR 7,500**
+✓ Hospital cash benefit: Up to **QR 200** per night
+
+Outpatient Coverage:
+
+✓ Coinsurance: **0%** for consultations
+✓ Deductible: **QR 50** per consultation
+✓ Dental: **QR 3,000** per year
+✓ Optical: **QR 1,500** per year
+
+Please note the following limitations:
+
+✓ Pre-approval required for specific procedures
+✓ Maximum limits apply for certain services
+✓ Network restrictions may apply
 
 ANSWER:"""
 
             response = self.llm._generate_text(prompt, max_tokens=600, temperature=0.2)
+            
+            # Store the exchange in memory
+            self._add_to_memory(question, response.strip())
+            
             return response.strip()
             
         except Exception as e:
@@ -3901,4 +3965,26 @@ ANSWER:"""
                 "Is pre-approval required for this service?",
                 "What are my out-of-pocket costs?"
             ]
+
+    def _add_to_memory(self, question: str, answer: str):
+        """Add a Q&A exchange to conversation memory"""
+        self.conversation_memory.append({
+            "question": question,
+            "answer": answer,
+            "timestamp": datetime.now().isoformat()
+        })
+        # Keep only the last N exchanges
+        if len(self.conversation_memory) > self.max_memory_length:
+            self.conversation_memory.pop(0)
+
+    def _format_conversation_history(self) -> str:
+        """Format conversation history for context"""
+        if not self.conversation_memory:
+            return ""
+        
+        history = "\nPREVIOUS CONVERSATION:\n"
+        for exchange in self.conversation_memory:
+            history += f"User: {exchange['question']}\n"
+            history += f"Assistant: {exchange['answer']}\n"
+        return history
 

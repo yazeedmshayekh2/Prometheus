@@ -159,9 +159,9 @@ class InsuranceAssistant {
             // Remove loading indicator before adding success message
             this.removeLoadingIndicator();
         
-            // Mark as confirmed
-            this.isNationalIdConfirmed = true;
-            this.currentNationalId = nationalId;
+        // Mark as confirmed
+        this.isNationalIdConfirmed = true;
+        this.currentNationalId = nationalId;
         
             // Add confirmation message to chat
             this.addMessageToChat('assistant', '✅ ID verified successfully. How can I help you with your policy today?');
@@ -890,7 +890,7 @@ class InsuranceAssistant {
             console.log('Response container found, showing it');
             responseContainer.classList.remove('hidden');
             responseContainer.classList.add('show');
-        } else {
+                    } else {
             console.error('Response container not found!');
         }
 

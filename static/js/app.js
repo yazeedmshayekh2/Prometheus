@@ -1436,6 +1436,7 @@ class InsuranceAssistant {
             // Click handler for the toggle button
             sidebarToggle.addEventListener('click', () => {
                 sidebar.classList.toggle('open');
+                // No need to manually rotate arrow, CSS will handle it
             });
 
             // Close sidebar when clicking outside
@@ -1449,20 +1450,10 @@ class InsuranceAssistant {
                 }
             });
 
-            // Handle mouse leave for the entire sidebar area
-            sidebar.addEventListener('mouseleave', () => {
-                // Only close if it wasn't opened by clicking
-                if (!sidebar.classList.contains('open')) {
-                    sidebar.style.left = '-250px';
-                    sidebarToggle.style.opacity = '1';
-                }
-            });
-
             // Handle hover functionality
             sidebarHoverArea.addEventListener('mouseenter', () => {
                 if (!sidebar.classList.contains('open')) {
                     sidebar.style.left = '0';
-                    sidebarToggle.style.opacity = '0';
                 }
             });
 
@@ -1471,7 +1462,14 @@ class InsuranceAssistant {
                 const toElement = e.relatedTarget;
                 if (!sidebar.contains(toElement) && !sidebar.classList.contains('open')) {
                     sidebar.style.left = '-250px';
-                    sidebarToggle.style.opacity = '1';
+                }
+            });
+
+            // Handle sidebar hover
+            sidebar.addEventListener('mouseleave', () => {
+                // Only close if it wasn't opened by clicking
+                if (!sidebar.classList.contains('open')) {
+                    sidebar.style.left = '-250px';
                 }
             });
         }

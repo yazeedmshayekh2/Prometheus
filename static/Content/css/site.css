@@ -489,7 +489,7 @@ br{
 /* Sidebar Styles */
 .sidebar {
     position: fixed;
-    left: -250px;
+    left: -250px !important;
     top: 0;
     width: 250px;
     height: 100vh;
@@ -499,26 +499,43 @@ br{
     z-index: 1000;
     display: flex;
     flex-direction: column;
-    will-change: left;
 }
 
 .sidebar.open {
-    left: 0;
+    left: 0 !important;
 }
 
 .sidebar-toggle {
     position: fixed;
-    left: 10px;
-    top: 10px;
+    left: 16px;
+    top: 50%;
+    transform: translateY(-50%);
     z-index: 1001;
-    background: #fff;
+    background: rgba(255, 255, 255, 0.95);
+    backdrop-filter: blur(10px);
     border: none;
-    border-radius: 5px;
-    padding: 8px 12px;
+    border-radius: 12px;
+    padding: 12px;
     cursor: pointer;
-    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-    transition: all 0.3s ease;
-    will-change: opacity;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    font-size: 18px;
+    color: #374151;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 44px;
+    min-height: 44px;
+}
+
+.sidebar-toggle::before {
+    content: '›';
+    display: inline-block;
+    transform: rotate(0deg);
+    transition: transform 0.3s ease;
+}
+
+.sidebar.open + .sidebar-toggle::before {
+    transform: rotate(180deg);
 }
 
 /* Add hover area */
@@ -530,6 +547,62 @@ br{
     height: 100vh;
     z-index: 999;
     background: transparent;
+}
+
+/* Show sidebar on hover - Desktop Only */
+@media (min-width: 769px) {
+    .sidebar-hover-area:hover + .sidebar,
+    .sidebar:hover {
+        left: 0;
+    }
+
+    .sidebar-hover-area:hover + .sidebar + .sidebar-toggle::before,
+    .sidebar:hover + .sidebar-toggle::before {
+        transform: rotate(180deg);
+    }
+
+    /* Hide toggle button when sidebar is visible */
+    .sidebar-hover-area:hover + .sidebar + .sidebar-toggle,
+    .sidebar:hover + .sidebar-toggle {
+        opacity: 0;
+    }
+}
+
+/* Mobile Styles */
+@media (max-width: 768px) {
+    .sidebar {
+        width: 100%;
+        left: -100%;
+    }
+
+    .sidebar-toggle {
+        top: 10px;
+        left: 10px;
+        transform: none;
+        background: transparent;
+        border-radius: 0;
+    }
+
+    .sidebar-toggle::before {
+        content: '☰';
+        transform: none !important;
+    }
+
+    .sidebar.open + .sidebar-toggle::before {
+        content: '×';
+        transform: none !important;
+        font-size: 24px;
+    }
+
+    /* Hide hover area on mobile */
+    .sidebar-hover-area {
+        display: none;
+    }
+
+    /* Never hide toggle button on mobile */
+    .sidebar-toggle {
+        opacity: 1 !important;
+    }
 }
 
 /* Remove CSS hover states since we're handling it in JS */
@@ -601,13 +674,4 @@ br{
 /* Adjust main container for sidebar */
 .container {
     transition: none;
-}
-
-
-/* Update mobile styles */
-@media (max-width: 768px) {
-    .sidebar {
-        width: 100%;
-        left: -100%;
-    }
 }

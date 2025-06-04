@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:ital,wght@0,100;0,200;0,300;0,400;0,500;0,600;0,700;0,800;0,900;1,100;1,200;1,300;1,400;1,500;1,600;1,700;1,800;1,900&display=swap" rel="stylesheet">
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Login - DIG Chat</title>
+    <link href="Content/css/bootstrap/css/bootstrap.css" rel="stylesheet" />
+    <link href="Content/css/site.css" rel="stylesheet" />
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.11.6/dist/umd/popper.min.js"></script>
+    <script src="Content/css/bootstrap/js/bootstrap.js"></script>
+    <link rel="icon" type="image/x-icon" href="Content/img/dig-sm-logo.png">
+</head>
+<body>
+    <div class="container">
+        <nav class="navbar navbar-light bg-light">
+            <img src="Content/img/dig-sm-logo-w.png" width="30" height="30" alt="Doha Insurance Group - DIG" title="Doha Insurance Group - DIG" />
+            💉 Medical Group Assistant - DIG
+        </nav>
+        
+        <div class="auth-container">
+            <div class="auth-box">
+                <h2>Login</h2>
+                <form id="loginForm" class="auth-form">
+                    <div class="form-group">
+                        <input type="email" class="form-control" id="email" placeholder="Email" required>
+                    </div>
+                    <div class="form-group">
+                        <input type="password" class="form-control" id="password" placeholder="Password" required>
+                    </div>
+                    <button type="submit" class="btnSend">Login</button>
+                    <div class="auth-links">
+                        <a href="signup.html">Don't have an account? Sign up</a>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    <script src="js/auth.js"></script>
+</body>
+</html> 

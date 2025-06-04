@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Request, status
+from fastapi import FastAPI, HTTPException, Request, status, Depends
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response, StreamingResponse
@@ -20,6 +20,12 @@ from swagger_docs import (
     QueryRequest, PDFRequest, SuggestionsRequest, FamilyTestRequest,
     QueryResponse, ErrorResponse, Source, PDFInfo
 )
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from jose import JWTError, jwt
+from passlib.context import CryptContext
+from datetime import datetime, timedelta
+import uuid
+from auth_db import AuthDB
 
 # Add ngrok import
 try:
@@ -75,14 +81,105 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# Enable CORS - Update to allow all origins in development
+# Initialize database
+auth_db = AuthDB()
+
+# Enable CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allow all origins in development
+    allow_origins=["*"],
     allow_credentials=True,
-    allow_methods=["*"],  # Allow all methods
-    allow_headers=["*"],  # Allow all headers
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
+
+# Create a sub-application for API routes
+api_app = FastAPI()
+
+# Authentication settings
+SECRET_KEY = "your-secret-key-here"  # In production, use a secure secret key
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 30
+
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
+
+# User and conversation models
+class User(BaseModel):
+    email: str
+    name: str
+    hashed_password: str
+
+class UserInDB(User):
+    id: str
+
+class UserCreate(BaseModel):
+    name: str
+    email: str
+    password: str
+
+class Token(BaseModel):
+    access_token: str
+    token_type: str
+    name: str
+
+class TokenData(BaseModel):
+    email: str
+
+class Conversation(BaseModel):
+    id: str
+    user_id: str
+    messages: List[dict]
+    created_at: datetime
+    updated_at: datetime
+
+# In-memory storage (replace with database in production)
+users_db = {}
+conversations_db = {}
+
+def get_user(email: str):
+    if email in users_db:
+        user_dict = users_db[email]
+        return UserInDB(**user_dict)
+    return None
+
+def authenticate_user(email: str, password: str):
+    user = get_user(email)
+    if not user:
+        return False
+    if not pwd_context.verify(password, user.hashed_password):
+        return False
+    return user
+
+def create_access_token(data: dict, expires_delta: timedelta = None):
+    to_encode = data.copy()
+    if expires_delta:
+        expire = datetime.utcnow() + expires_delta
+    else:
+        expire = datetime.utcnow() + timedelta(minutes=15)
+    to_encode.update({"exp": expire})
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return encoded_jwt
+
+async def get_current_user(token: str = Depends(oauth2_scheme)):
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        email: str = payload.get("sub")
+        if email is None:
+            raise credentials_exception
+        token_data = TokenData(email=email)
+    except JWTError:
+        raise credentials_exception
+    
+    user = auth_db.get_user_by_email(token_data.email)
+    if user is None:
+        raise credentials_exception
+    return user
 
 # API Routes
 class QueryRequest(BaseModel):
@@ -708,14 +805,6 @@ async def test_family_members(request: FamilyTestRequest):
         print(f"Error in test endpoint: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-# Set up static files - Move this after API routes
-STATIC_DIR = Path("static")
-STATIC_DIR.mkdir(exist_ok=True)
-
-# Mount static files handler last
-if STATIC_DIR.exists():
-    app.mount("/", StaticFiles(directory="static", html=True), name="static")
-
 # Add cache control middleware
 @app.middleware("http")
 async def add_cache_control_headers(request: Request, call_next):
@@ -777,6 +866,105 @@ def generate_self_signed_cert(cert_file="ssl/cert.pem", key_file="ssl/key.pem"):
     except FileNotFoundError:
         print("OpenSSL not found. Please install OpenSSL or provide your own certificate.")
         return None, None
+
+# Authentication endpoints
+@api_app.post("/signup")
+async def signup(request: Request):
+    try:
+        data = await request.json()
+        
+        # Check if user exists
+        if auth_db.get_user_by_email(data["email"]):
+            raise HTTPException(
+                status_code=400,
+                detail="Email already registered"
+            )
+        
+        # Create new user
+        user_id = str(uuid.uuid4())
+        hashed_password = pwd_context.hash(data["password"])
+        
+        if auth_db.create_user(user_id, data["email"], data["name"], hashed_password):
+            return {"message": "User created successfully"}
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail="Failed to create user"
+            )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@api_app.post("/login")
+async def login(request: Request):
+    try:
+        data = await request.json()
+        user = auth_db.get_user_by_email(data["email"])
+        
+        if not user or not pwd_context.verify(data["password"], user["hashed_password"]):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Incorrect email or password",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        
+        access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+        access_token = create_access_token(
+            data={"sub": user["email"]}, expires_delta=access_token_expires
+        )
+        return {"access_token": access_token, "token_type": "bearer", "name": user["name"]}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+# Request models
+class ConversationCreate(BaseModel):
+    messages: List[dict]
+
+class ConversationUpdate(BaseModel):
+    messages: List[dict]
+
+# Conversation endpoints
+@api_app.get("/conversations")
+async def get_conversations(current_user: dict = Depends(get_current_user)):
+    return auth_db.get_user_conversations(current_user["id"])
+
+@api_app.get("/conversations/{conversation_id}")
+async def get_conversation(
+    conversation_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    conversation = auth_db.get_conversation(conversation_id, current_user["id"])
+    if not conversation:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    return conversation
+
+@api_app.post("/conversations")
+async def create_conversation(
+    conversation: ConversationCreate,
+    current_user: dict = Depends(get_current_user)
+):
+    conversation_id = str(uuid.uuid4())
+    auth_db.create_conversation(conversation_id, current_user["id"])
+    auth_db.update_conversation(conversation_id, conversation.messages)
+    return auth_db.get_conversation(conversation_id, current_user["id"])
+
+@api_app.put("/conversations/{conversation_id}")
+async def update_conversation(
+    conversation_id: str,
+    conversation: ConversationUpdate,
+    current_user: dict = Depends(get_current_user)
+):
+    existing = auth_db.get_conversation(conversation_id, current_user["id"])
+    if not existing:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    
+    auth_db.update_conversation(conversation_id, conversation.messages)
+    return auth_db.get_conversation(conversation_id, current_user["id"])
+
+# Mount the API routes under /api
+app.mount("/api", api_app)
+
+# Mount static files after API routes
+app.mount("/", StaticFiles(directory="static", html=True), name="static")
 
 if __name__ == "__main__":
     import uvicorn

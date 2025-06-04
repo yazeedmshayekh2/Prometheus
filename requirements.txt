@@ -43,4 +43,8 @@ cuvs-cu12
 pytz
 langchain-community
 
-flash-attn
+python-jose[cryptography] 
+passlib[bcrypt] 
+python-multipart
+aiosqlite
+bcrypt

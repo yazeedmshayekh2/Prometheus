@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException, Request, status, Depends
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import Response, StreamingResponse
+from fastapi.responses import Response, StreamingResponse, RedirectResponse, JSONResponse
 from pydantic import BaseModel
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -915,12 +915,30 @@ async def login(request: Request):
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-# Request models
+# Request models for conversations
+class UserInfo(BaseModel):
+    contractorName: str
+    expiryDate: str
+    beneficiaryCount: str
+    nationalId: str
+
+class ConversationState(BaseModel):
+    messages: List[dict]
+    userInfo: UserInfo
+    suggestedQuestions: str
+    isNationalIdConfirmed: bool
+
 class ConversationCreate(BaseModel):
     messages: List[dict]
+    userInfo: UserInfo
+    suggestedQuestions: str
+    isNationalIdConfirmed: bool
 
 class ConversationUpdate(BaseModel):
     messages: List[dict]
+    userInfo: UserInfo
+    suggestedQuestions: str
+    isNationalIdConfirmed: bool
 
 # Conversation endpoints
 @api_app.get("/conversations")
@@ -944,7 +962,13 @@ async def create_conversation(
 ):
     conversation_id = str(uuid.uuid4())
     auth_db.create_conversation(conversation_id, current_user["id"])
-    auth_db.update_conversation(conversation_id, conversation.messages)
+    auth_db.update_conversation(
+        conversation_id,
+        conversation.messages,
+        conversation.userInfo.dict(),
+        conversation.suggestedQuestions,
+        conversation.isNationalIdConfirmed
+    )
     return auth_db.get_conversation(conversation_id, current_user["id"])
 
 @api_app.put("/conversations/{conversation_id}")
@@ -957,14 +981,28 @@ async def update_conversation(
     if not existing:
         raise HTTPException(status_code=404, detail="Conversation not found")
     
-    auth_db.update_conversation(conversation_id, conversation.messages)
+    auth_db.update_conversation(
+        conversation_id,
+        conversation.messages,
+        conversation.userInfo.dict(),
+        conversation.suggestedQuestions,
+        conversation.isNationalIdConfirmed
+    )
     return auth_db.get_conversation(conversation_id, current_user["id"])
 
 # Mount the API routes under /api
 app.mount("/api", api_app)
 
-# Mount static files after API routes
-app.mount("/", StaticFiles(directory="static", html=True), name="static")
+# Add root route to redirect to login
+@app.get("/")
+async def root():
+    return RedirectResponse(url="/login.html", status_code=302)
+
+# Mount static files after API routes and root route
+app.mount("/static", StaticFiles(directory="static", html=True), name="static")
+
+# Serve static files from root path for HTML files
+app.mount("/", StaticFiles(directory="static", html=True), name="root_static")
 
 if __name__ == "__main__":
     import uvicorn

@@ -2,6 +2,13 @@ console.log('app.js starting to load');
 
 class InsuranceAssistant {
     constructor() {
+        // Check authentication first
+        const token = localStorage.getItem('authToken');
+        if (!token) {
+            window.location.href = '/login.html';
+            return;
+        }
+
         console.log('InsuranceAssistant constructor starting');
         
         // Chat elements
@@ -299,7 +306,7 @@ class InsuranceAssistant {
         }
     }
     
-    addMessageToChat(role, content) {
+    addMessageToChat(role, content, shouldSave = true) {
         if (!content) {
             console.error('No content provided for chat message');
             return;
@@ -312,7 +319,6 @@ class InsuranceAssistant {
         
         // Create message element
         const messageDiv = document.createElement('div');
-        // Use 'user' class for user messages, 'assistant' for system messages
         messageDiv.className = `chat ${role === 'user' ? 'user' : 'assistant'}`;
 
         // Set content with proper formatting
@@ -322,15 +328,17 @@ class InsuranceAssistant {
         
         // Add message to container
         if (this.chatContainer) {
-        this.chatContainer.appendChild(messageDiv);
-        // Scroll to bottom
-        this.chatContainer.scrollTop = this.chatContainer.scrollHeight;
+            this.chatContainer.appendChild(messageDiv);
+            // Scroll to bottom
+            this.chatContainer.scrollTop = this.chatContainer.scrollHeight;
         }
         
         console.log('Message added to chat');
 
-        // Save conversation after adding message
-        this.saveConversation();
+        // Save conversation only if shouldSave is true
+        if (shouldSave) {
+            this.saveConversation();
+        }
     }
 
     setLoading(isLoading) {
@@ -1521,14 +1529,44 @@ class InsuranceAssistant {
     }
 
     async startNewConversation() {
+        // Reset conversation state
         this.currentConversationId = null;
         this.chatHistory = [];
-        this.initializeChat();
+        
+        // Reset national ID state
+        this.isNationalIdConfirmed = false;
+        this.currentNationalId = '';
+        
+        // Reset user info
+        this.clearUserInfo();
+        
+        // Reset textarea placeholder
+        if (this.textArea) {
+            this.textArea.value = '';
+            this.textArea.placeholder = 'Enter your 11-digit National ID';
+        }
+        
+        // Hide suggested questions
+        if (this.suggestContainer) {
+            this.suggestContainer.style.display = 'none';
+        }
+        
+        // Clear chat container except welcome message
+        if (this.chatContainer) {
+            this.chatContainer.innerHTML = '';
+            const welcomeMessage = document.createElement('div');
+            welcomeMessage.className = 'chat assistant';
+            welcomeMessage.innerHTML = '👋 Hi I\'m a chatbot that can help with your medical group policy; Please Enter Your Insured Qatari ID';
+            this.chatContainer.appendChild(welcomeMessage);
+        }
         
         // Remove active class from all conversations
         document.querySelectorAll('.conversation-item').forEach(item => {
             item.classList.remove('active');
         });
+
+        // Update send button state
+        this.updateSendButtonState();
     }
 
     async loadConversation(conversationId) {
@@ -1544,22 +1582,47 @@ class InsuranceAssistant {
 
             if (response.ok) {
                 const conversation = await response.json();
+                
+                // Reset all state first (except conversation ID and messages)
+                this.isNationalIdConfirmed = false;
+                this.currentNationalId = '';
+                this.clearUserInfo();
+                
+                // Reset textarea placeholder
+                if (this.textArea) {
+                    this.textArea.value = '';
+                    this.textArea.placeholder = 'Enter your 11-digit National ID';
+                }
+                
+                // Hide suggested questions
+                if (this.suggestContainer) {
+                    this.suggestContainer.style.display = 'none';
+                }
+                
+                // Update conversation ID
                 this.currentConversationId = conversationId;
+                
+                // Clear chat container first
+                if (this.chatContainer) {
+                    this.chatContainer.innerHTML = '';
+                }
+                
+                // Restore chat history
                 this.chatHistory = conversation.messages;
-                
-                // Clear chat and display messages
-                this.chatContainer.innerHTML = '';
                 this.chatHistory.forEach(msg => {
-                    this.addMessageToChat(msg.role, msg.content);
+                    this.addMessageToChat(msg.role, msg.content, false); // false means don't save to DB
                 });
-                
-                // Update active state
+
+                // Update active state in sidebar
                 document.querySelectorAll('.conversation-item').forEach(item => {
                     item.classList.remove('active');
                     if (item.dataset.id === conversationId) {
                         item.classList.add('active');
                     }
                 });
+
+                // Update send button state
+                this.updateSendButtonState();
             }
         } catch (error) {
             console.error('Error loading conversation:', error);
@@ -1570,6 +1633,19 @@ class InsuranceAssistant {
         try {
             const token = localStorage.getItem('authToken');
             if (!token || !this.chatHistory.length) return;
+
+            // Create a complete state object
+            const conversationState = {
+                messages: this.chatHistory,
+                userInfo: {
+                    contractorName: this.contractorName?.textContent || '-',
+                    expiryDate: this.expiryDate?.textContent || '-',
+                    beneficiaryCount: this.beneficiaryCount?.textContent || '-',
+                    nationalId: this.currentNationalId || ''
+                },
+                suggestedQuestions: this.suggestContainer?.querySelector('.suggestbtn')?.innerHTML || '',
+                isNationalIdConfirmed: this.isNationalIdConfirmed
+            };
 
             const method = this.currentConversationId ? 'PUT' : 'POST';
             const url = this.currentConversationId 
@@ -1582,9 +1658,7 @@ class InsuranceAssistant {
                     'Authorization': `Bearer ${token}`,
                     'Content-Type': 'application/json'
                 },
-                body: JSON.stringify({
-                    messages: this.chatHistory
-                })
+                body: JSON.stringify(conversationState)
             });
 
             if (response.ok) {
@@ -1602,8 +1676,14 @@ console.log('About to initialize InsuranceAssistant');
 
 // Initialize the application when the DOM is loaded
 document.addEventListener('DOMContentLoaded', () => {
-    console.log('DOM loaded, initializing InsuranceAssistant');
-        window.insuranceAssistant = new InsuranceAssistant();
+    console.log('DOM loaded, checking auth before initializing InsuranceAssistant');
+    // Check if user is authenticated
+    const token = localStorage.getItem('authToken');
+    if (!token) {
+        window.location.href = '/login.html';
+        return;
+    }
+    window.insuranceAssistant = new InsuranceAssistant();
 });
 
 console.log('app.js finished loading'); 

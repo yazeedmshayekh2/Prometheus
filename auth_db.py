@@ -19,9 +19,9 @@ class AuthDB:
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS users (
                     id TEXT PRIMARY KEY,
-                    email TEXT UNIQUE NOT NULL,
-                    name TEXT NOT NULL,
-                    hashed_password TEXT NOT NULL,
+                    email TEXT UNIQUE,
+                    name TEXT,
+                    hashed_password TEXT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             ''')
@@ -30,25 +30,39 @@ class AuthDB:
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS conversations (
                     id TEXT PRIMARY KEY,
-                    user_id TEXT NOT NULL,
+                    user_id TEXT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (user_id) REFERENCES users (id)
+                    FOREIGN KEY (user_id) REFERENCES users(id)
                 )
             ''')
             
-            # Create messages table
+            # Create messages table with additional state columns
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS messages (
                     id TEXT PRIMARY KEY,
-                    conversation_id TEXT NOT NULL,
-                    role TEXT NOT NULL,
-                    content TEXT NOT NULL,
+                    conversation_id TEXT,
+                    role TEXT,
+                    content TEXT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (conversation_id) REFERENCES conversations (id)
+                    FOREIGN KEY (conversation_id) REFERENCES conversations(id)
                 )
             ''')
-            
+
+            # Create conversation state table
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS conversation_state (
+                    conversation_id TEXT PRIMARY KEY,
+                    contractor_name TEXT,
+                    expiry_date TEXT,
+                    beneficiary_count TEXT,
+                    national_id TEXT,
+                    suggested_questions TEXT,
+                    is_national_id_confirmed BOOLEAN,
+                    FOREIGN KEY (conversation_id) REFERENCES conversations(id)
+                )
+            ''')
+
             conn.commit()
 
     def create_user(self, user_id, email, name, hashed_password):
@@ -116,46 +130,86 @@ class AuthDB:
             } for conv in conversations]
 
     def get_conversation(self, conversation_id, user_id):
-        """Get a specific conversation and its messages"""
+        """Get a conversation by ID"""
         with sqlite3.connect(self.db_path) as conn:
-            conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
-            cursor.execute('''
-                SELECT c.*, json_group_array(json_object(
-                    'role', m.role,
-                    'content', m.content
-                )) as messages
-                FROM conversations c
-                LEFT JOIN messages m ON c.id = m.conversation_id
-                WHERE c.id = ? AND c.user_id = ?
-                GROUP BY c.id
-            ''', (conversation_id, user_id))
-            conv = cursor.fetchone()
-            if conv:
-                return {
-                    'id': conv['id'],
-                    'user_id': conv['user_id'],
-                    'created_at': conv['created_at'],
-                    'updated_at': conv['updated_at'],
-                    'messages': eval(conv['messages']) if conv['messages'] else []
-                }
-            return None
+            
+            # Get conversation
+            cursor.execute(
+                'SELECT id, created_at, updated_at FROM conversations WHERE id = ? AND user_id = ?',
+                (conversation_id, user_id)
+            )
+            conversation = cursor.fetchone()
+            
+            if not conversation:
+                return None
+            
+            # Get messages
+            cursor.execute(
+                'SELECT role, content FROM messages WHERE conversation_id = ? ORDER BY created_at',
+                (conversation_id,)
+            )
+            messages = [{'role': role, 'content': content} for role, content in cursor.fetchall()]
+            
+            # Get conversation state
+            cursor.execute(
+                'SELECT contractor_name, expiry_date, beneficiary_count, national_id, suggested_questions, is_national_id_confirmed FROM conversation_state WHERE conversation_id = ?',
+                (conversation_id,)
+            )
+            state = cursor.fetchone()
+            
+            return {
+                'id': conversation[0],
+                'messages': messages,
+                'created_at': conversation[1],
+                'updated_at': conversation[2],
+                'userInfo': {
+                    'contractorName': state[0] if state else '-',
+                    'expiryDate': state[1] if state else '-',
+                    'beneficiaryCount': state[2] if state else '-',
+                    'nationalId': state[3] if state else ''
+                } if state else None,
+                'suggestedQuestions': state[4] if state else '',
+                'isNationalIdConfirmed': bool(state[5]) if state else False
+            }
 
-    def update_conversation(self, conversation_id, messages):
-        """Update a conversation's messages"""
+    def update_conversation(self, conversation_id, messages, user_info=None, suggested_questions=None, is_national_id_confirmed=None):
+        """Update a conversation's messages and state"""
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
-            # Delete existing messages
-            cursor.execute('DELETE FROM messages WHERE conversation_id = ?', (conversation_id,))
-            # Insert new messages
-            for msg in messages:
-                cursor.execute(
-                    'INSERT INTO messages (id, conversation_id, role, content) VALUES (?, ?, ?, ?)',
-                    (str(uuid.uuid4()), conversation_id, msg['role'], msg['content'])
-                )
+            
             # Update conversation timestamp
             cursor.execute(
-                'UPDATE conversations SET updated_at = ? WHERE id = ?',
-                (datetime.utcnow().isoformat(), conversation_id)
+                'UPDATE conversations SET updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+                (conversation_id,)
             )
-            conn.commit() 
+            
+            # Delete existing messages
+            cursor.execute('DELETE FROM messages WHERE conversation_id = ?', (conversation_id,))
+            
+            # Insert new messages
+            for msg in messages:
+                msg_id = str(uuid.uuid4())
+                cursor.execute(
+                    'INSERT INTO messages (id, conversation_id, role, content) VALUES (?, ?, ?, ?)',
+                    (msg_id, conversation_id, msg['role'], msg['content'])
+                )
+
+            # Update conversation state
+            if user_info is not None:
+                cursor.execute('DELETE FROM conversation_state WHERE conversation_id = ?', (conversation_id,))
+                cursor.execute('''
+                    INSERT INTO conversation_state (
+                        conversation_id, contractor_name, expiry_date, 
+                        beneficiary_count, national_id, suggested_questions, 
+                        is_national_id_confirmed
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    conversation_id,
+                    user_info.get('contractorName'),
+                    user_info.get('expiryDate'),
+                    user_info.get('beneficiaryCount'),
+                    user_info.get('nationalId'),
+                    suggested_questions,
+                    is_national_id_confirmed
+                )) 

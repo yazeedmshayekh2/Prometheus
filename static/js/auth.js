@@ -1,7 +1,10 @@
 class Auth {
     constructor() {
-        this.form = document.querySelector('form');
+        this.form = document.querySelector('form#loginForm') || document.querySelector('form#signupForm');
         this.setupEventListeners();
+        
+        // Check token expiration periodically
+        this.startTokenCheck();
     }
 
     setupEventListeners() {
@@ -15,6 +18,40 @@ class Auth {
                 }
             });
         }
+    }
+
+    startTokenCheck() {
+        // Check token every minute
+        setInterval(() => {
+            this.checkTokenValidity();
+        }, 60000); // 60000 ms = 1 minute
+    }
+
+    checkTokenValidity() {
+        const token = localStorage.getItem('authToken');
+        if (!token) {
+            this.redirectToLogin();
+            return;
+        }
+
+        // Check if token is expired
+        try {
+            const tokenData = JSON.parse(atob(token.split('.')[1]));
+            if (tokenData.exp * 1000 < Date.now()) {
+                // Token is expired
+                this.redirectToLogin();
+            }
+        } catch (e) {
+            // If there's any error parsing the token, redirect to login
+            this.redirectToLogin();
+        }
+    }
+
+    redirectToLogin() {
+        localStorage.removeItem('authToken');
+        localStorage.removeItem('userName');
+        localStorage.removeItem('userEmail');
+        window.location.href = '/login.html';
     }
 
     async handleLogin() {
@@ -38,8 +75,8 @@ class Auth {
                 localStorage.setItem('userName', data.name);
                 localStorage.setItem('userEmail', email);
                 
-                // Redirect to main page
-                window.location.href = '/';
+                // Redirect to main chat page
+                window.location.href = '/index.html';
             } else {
                 alert(data.detail || 'Login failed. Please try again.');
             }
@@ -85,16 +122,43 @@ class Auth {
 
     static checkAuth() {
         const token = localStorage.getItem('authToken');
-        if (!token && !window.location.pathname.includes('login.html') && !window.location.pathname.includes('signup.html')) {
+        const currentPath = window.location.pathname;
+        
+        // If on root path, redirect to login
+        if (currentPath === '/') {
             window.location.href = '/login.html';
+            return;
+        }
+        
+        // If no token and trying to access protected pages
+        if (!token && currentPath !== '/login.html' && currentPath !== '/signup.html') {
+            Auth.prototype.redirectToLogin();
+            return;
+        }
+        
+        // If has token and on auth pages, redirect to main app
+        if (token && (currentPath === '/login.html' || currentPath === '/signup.html')) {
+            window.location.href = '/index.html';
+            return;
+        }
+
+        // If has token, check its validity
+        if (token) {
+            try {
+                const tokenData = JSON.parse(atob(token.split('.')[1]));
+                if (tokenData.exp * 1000 < Date.now()) {
+                    // Token is expired
+                    Auth.prototype.redirectToLogin();
+                }
+            } catch (e) {
+                // If there's any error parsing the token, redirect to login
+                Auth.prototype.redirectToLogin();
+            }
         }
     }
 
     static logout() {
-        localStorage.removeItem('authToken');
-        localStorage.removeItem('userName');
-        localStorage.removeItem('userEmail');
-        window.location.href = '/login.html';
+        Auth.prototype.redirectToLogin();
     }
 }
 

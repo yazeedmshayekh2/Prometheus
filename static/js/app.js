@@ -620,9 +620,8 @@ class InsuranceAssistant {
             // Show modal
             if (modal && !modal.classList.contains('show')) {
                 const bootstrapModal = new bootstrap.Modal(modal);
-                bootstrapModal.show();
             }
-
+            
             // Create a blob URL for the PDF
             const response = await fetch('/api/pdf', {
                 method: 'POST',
@@ -1388,78 +1387,6 @@ class InsuranceAssistant {
         }
     }
 
-    // Enhanced test methods for PDF functionality
-    async testPDFSystem() {
-        console.log('=== Starting PDF System Test ===');
-        
-        // Test 1: Check if modal elements exist
-        const modal = document.querySelector('#TOBModal');
-        const iframe = document.querySelector('#TOBModal iframe');
-        const modalTitle = document.querySelector('#TOBModalLabel');
-        
-        console.log('DOM Elements Check:', {
-            'Modal exists': !!modal,
-            'Iframe exists': !!iframe,
-            'Modal title exists': !!modalTitle
-        });
-
-        // Test 2: Test with a local PDF (relative path)
-        console.log('\nTest 1: Testing with relative path');
-        await this.testPDFDisplay('/Content/sample.pdf', 'Local Test');
-        
-        // Test 3: Test with an absolute URL
-        console.log('\nTest 2: Testing with absolute URL');
-        await this.testPDFDisplay('https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf', 'External Test');
-
-        // Test 4: Test API endpoint
-        console.log('\nTest 3: Testing API endpoint');
-        try {
-            const response = await fetch('/api/pdf', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    pdf_link: '/Content/sample.pdf'
-                })
-            });
-            console.log('API Test Response:', {
-                status: response.status,
-                ok: response.ok,
-                contentType: response.headers.get('content-type')
-            });
-        } catch (error) {
-            console.error('API Test Error:', error);
-        }
-    }
-
-    // Enhanced PDF display test
-    async testPDFDisplay(testPdfLink = '/Content/sample.pdf', companyName = 'Test Company') {
-        console.log(`\nTesting PDF display for: ${testPdfLink}`);
-        console.log('Test Parameters:', { testPdfLink, companyName });
-        
-        try {
-            // First, ensure the modal is ready
-            const modal = document.querySelector('#TOBModal');
-            if (modal && !modal.classList.contains('show')) {
-                console.log('Opening modal for test...');
-                const bootstrapModal = new bootstrap.Modal(modal);
-                bootstrapModal.show();
-            }
-
-            // Attempt to display the PDF
-            await this.displayPDF({
-                pdf_link: testPdfLink,
-                company_name: companyName
-            });
-
-            console.log('PDF display attempt completed');
-        } catch (error) {
-            console.error('Test PDF Display Error:', error);
-        }
-    }
-
-    // Add a method to check PDF loading status
     checkPDFLoadStatus(iframe) {
         return new Promise((resolve) => {
             if (!iframe) {

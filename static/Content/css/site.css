@@ -1,4 +1,4 @@
-﻿body {
+﻿body, html * {
     font-family: Poppins !important;
 }
 
@@ -56,7 +56,6 @@ br{
 
 .alert {
     font-size: 9pt;
-    font-weight: 100 !important;
     border-radius: 2rem;
 }
 .alert-info {
@@ -127,6 +126,7 @@ br{
 }
 
 
+
 /* Assistant/bot messages */
 
 /* Triangle for system messages */
@@ -173,13 +173,18 @@ br{
 .searchresult {
     padding-top: 10px;
     font-size: 9pt !important;
-    font-weight: 100 !important;
 }
 
-    .searchresult div a {
-        text-decoration: underline !important;
-        cursor: pointer !important;
-    }
+.searchresult a {
+    text-decoration: none !important;
+    cursor: pointer !important;
+}
+
+.searchresult a:hover {
+    text-decoration: none !important;
+    cursor: pointer !important;
+    color: #0d6efd !important;
+}
 
 
 .suggest {
@@ -195,7 +200,6 @@ br{
 
     .suggest .hints {
         font-size: 9pt;
-        font-weight: 100 !important;
         color: #808080;
         padding-left: 10px;
     }
@@ -206,7 +210,6 @@ br{
 
     .suggestbtn button {
         font-size: 9pt;
-        font-weight: 100 !important;
         color: rgba(15,81,50,0.8);
         padding: 10px;
         padding-left: 20px;
@@ -344,10 +347,6 @@ br{
     display: none !important;
 }
 
-.searchresult a{
-    text-decoration: none !important;
-}
-
 .modal-dialog.modal-lg {
     max-width: 90%;
     margin: 1.75rem auto;
@@ -428,8 +427,4 @@ br{
     #TOBModal .modal-content {
         height: 95vh;
     }
-}
-
-.searchresult a{
-    text-decoration: none !important;
 }

@@ -1510,17 +1510,43 @@ class InsuranceAssistant {
         
         conversations.sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at));
         
-        conversations.forEach(conv => {
+        conversations.forEach((conv, index) => {
             const item = document.createElement('div');
             item.className = 'conversation-item';
             if (conv.id === this.currentConversationId) {
                 item.classList.add('active');
             }
             
-            // Get the first message or use a default title
-            const title = conv.messages[0]?.content || 'New Conversation';
-            item.textContent = title.substring(0, 30) + (title.length > 30 ? '...' : '');
+            // Format the date
+            const date = new Date(conv.updated_at);
+            const formattedDate = date.toLocaleDateString('en-GB', {
+                day: '2-digit',
+                month: 'short'
+            });
             
+            // Get the national ID from the conversation if available
+            let nationalId = '';
+            if (conv.messages && conv.messages.length > 0) {
+                const idMessage = conv.messages.find(m => 
+                    m.role === 'user' && 
+                    /^\d{11}$/.test(m.content.trim())
+                );
+                if (idMessage) {
+                    nationalId = idMessage.content.trim();
+                }
+            }
+            
+            // Create title based on available information
+            let title;
+            if (nationalId) {
+                // If we have a national ID, use it in the title
+                title = `Chat ${index + 1} - ID: ${nationalId.slice(-4)}`;
+            } else {
+                // Otherwise use a generic numbered title with date
+                title = `Chat ${index + 1} - ${formattedDate}`;
+            }
+            
+            item.textContent = title;
             item.onclick = () => this.loadConversation(conv.id);
             conversationList.appendChild(item);
         });

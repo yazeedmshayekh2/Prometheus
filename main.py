@@ -3824,30 +3824,6 @@ FORMATTING GUIDELINES:
 - If information is not available, be honest and suggest next steps
 - Keep the tone warm and helpful throughout
 
-FORMATTING EXAMPLE:
-
-I'm happy to help you understand your coverage.
-
-Inpatient Coverage:
-
-✓ Normal Delivery: **QR 5,000**
-✓ Cesarean Section: **QR 7,500**
-✓ Miscarriage/Legal Abortion: **QR 7,500**
-✓ Hospital cash benefit: Up to **QR 200** per night
-
-Outpatient Coverage:
-
-✓ Coinsurance: **0%** for consultations
-✓ Deductible: **QR 50** per consultation
-✓ Dental: **QR 3,000** per year
-✓ Optical: **QR 1,500** per year
-
-Please note the following limitations:
-
-✓ Pre-approval required for specific procedures
-✓ Maximum limits apply for certain services
-✓ Network restrictions may apply
-
 ANSWER:"""
 
             response = self.llm._generate_text(prompt, max_tokens=600, temperature=0.2)

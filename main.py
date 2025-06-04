@@ -536,10 +536,6 @@ class DocumentQASystem:
         
         # Load cached data
         self._load_cached_data()
-        
-        # Add conversation memory
-        self.conversation_memory: List[Dict[str, str]] = []
-        self.max_memory_length = 5  # Store last 5 exchanges
 
     def _initialize_paths(self):
         """Initialize all path attributes"""
@@ -3773,19 +3769,15 @@ General Insurance Guidelines:
 
     def _generate_intelligent_response(self, question: str, context: str) -> str:
         """
-        Generate intelligent response using Qwen2.5 with optimized prompting and conversation memory
+        Generate intelligent response using Qwen2.5 with optimized prompting
         """
-        try:
-            conversation_history = self._format_conversation_history()
-            
-            prompt = f"""Based on the following insurance policy information and our conversation history, provide a friendly and simple answer to the question.
+        try:            
+            prompt = f"""Based on the following insurance policy information, provide a friendly and simple answer to the question.
 
 POLICY INFORMATION:
 {context}
 
-{conversation_history}
-
-CURRENT QUESTION: {question}
+Question: {question}
 
 INSTRUCTIONS:
 - Consider our previous conversation when providing your answer
@@ -3854,9 +3846,6 @@ Please note the following limitations:
 ANSWER:"""
 
             response = self.llm._generate_text(prompt, max_tokens=600, temperature=0.2)
-            
-            # Store the exchange in memory
-            self._add_to_memory(question, response.strip())
             
             return response.strip()
             
@@ -3966,25 +3955,4 @@ ANSWER:"""
                 "What are my out-of-pocket costs?"
             ]
 
-    def _add_to_memory(self, question: str, answer: str):
-        """Add a Q&A exchange to conversation memory"""
-        self.conversation_memory.append({
-            "question": question,
-            "answer": answer,
-            "timestamp": datetime.now().isoformat()
-        })
-        # Keep only the last N exchanges
-        if len(self.conversation_memory) > self.max_memory_length:
-            self.conversation_memory.pop(0)
-
-    def _format_conversation_history(self) -> str:
-        """Format conversation history for context"""
-        if not self.conversation_memory:
-            return ""
-        
-        history = "\nPREVIOUS CONVERSATION:\n"
-        for exchange in self.conversation_memory:
-            history += f"User: {exchange['question']}\n"
-            history += f"Assistant: {exchange['answer']}\n"
-        return history
 

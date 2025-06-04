@@ -105,14 +105,10 @@ br{
     clear: both;
 }
 
-.chat br + br {
-    display: none;
-}
-
 /* User messages */
 .chat.user {
     float: right;
-    background-color: #dfdfdf !important;
+    background-color: #e9e8e8 !important;
     border-top-right-radius: 0;
     border-top-left-radius: 1.25rem;
     margin-left: auto;
@@ -124,7 +120,7 @@ br{
     content: '';
     position: absolute;
     border: 17px solid transparent;
-    border-top: 17px solid #dfdfdf !important;
+    border-top: 17px solid #e9e8e8 !important;
     top: 0;
     right: -10px;
     left: auto;
@@ -138,13 +134,13 @@ br{
     content: '';
     position: absolute;
     border: 17px solid transparent;
-    border-top: 17px solid rgba(247,247,247,1) !important;
+    border-top: 17px solid rgba(242,242,242,1) !important;
     top: 0;
     left: -10px;
 }
 
 .chat.assistant {
-    background-color: rgba(247,247,247,1) !important;
+    background-color: rgba(242,242,242,1) !important;
     float: left;
     border-top-left-radius: 0;
     border-top-right-radius: 1.25rem;

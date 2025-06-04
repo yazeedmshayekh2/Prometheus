@@ -49,6 +49,9 @@ class InsuranceAssistant {
             textArea: !!this.textArea,
             sendButton: !!this.sendButton
         });
+
+        // Load jsPDF library
+        this.loadJsPDF();
     }
 
     setupEventListeners() {
@@ -321,10 +324,28 @@ class InsuranceAssistant {
         const messageDiv = document.createElement('div');
         messageDiv.className = `chat ${role === 'user' ? 'user' : 'assistant'}`;
 
+        // Create message content wrapper
+        const contentWrapper = document.createElement('div');
+        contentWrapper.className = 'message-content';
+        
         // Set content with proper formatting
-        messageDiv.innerHTML = role === 'assistant' 
+        contentWrapper.innerHTML = role === 'assistant' 
             ? this.markdownToHtml(content)
             : this.escapeHtml(content);
+
+        // Create copy button
+        const copyButton = document.createElement('button');
+        copyButton.className = 'copy-button';
+        copyButton.innerHTML = '📋';
+        copyButton.title = 'Copy message';
+        copyButton.onclick = (e) => {
+            e.stopPropagation();
+            this.copyMessageText(content);
+        };
+
+        // Add content and copy button to message div
+        messageDiv.appendChild(contentWrapper);
+        messageDiv.appendChild(copyButton);
         
         // Add message to container
         if (this.chatContainer) {
@@ -1480,6 +1501,21 @@ class InsuranceAssistant {
         if (userNameElement && userName) {
             userNameElement.textContent = userName;
         }
+
+        // Add download button to sidebar
+        const sidebarActions = document.createElement('div');
+        sidebarActions.className = 'sidebar-actions';
+        
+        const downloadButton = document.createElement('button');
+        downloadButton.className = 'download-conversation';
+        downloadButton.innerHTML = 'Download Conversation';
+        downloadButton.onclick = () => this.downloadConversationAsPDF();
+        
+        sidebarActions.appendChild(downloadButton);
+        
+        if (sidebar) {
+            sidebar.appendChild(sidebarActions);
+        }
     }
 
     async loadConversations() {
@@ -1607,22 +1643,6 @@ class InsuranceAssistant {
             if (response.ok) {
                 const conversation = await response.json();
                 
-                // Reset all state first (except conversation ID and messages)
-                this.isNationalIdConfirmed = false;
-                this.currentNationalId = '';
-                this.clearUserInfo();
-                
-                // Reset textarea placeholder
-                if (this.textArea) {
-                    this.textArea.value = '';
-                    this.textArea.placeholder = 'Enter your 11-digit National ID';
-                }
-                
-                // Hide suggested questions
-                if (this.suggestContainer) {
-                    this.suggestContainer.style.display = 'none';
-                }
-                
                 // Update conversation ID
                 this.currentConversationId = conversationId;
                 
@@ -1636,6 +1656,77 @@ class InsuranceAssistant {
                 this.chatHistory.forEach(msg => {
                     this.addMessageToChat(msg.role, msg.content, false); // false means don't save to DB
                 });
+
+                // Restore user information
+                if (conversation.userInfo) {
+                    // Update contractor name
+                    if (this.contractorName) {
+                        this.contractorName.textContent = conversation.userInfo.contractorName || '-';
+                    }
+
+                    // Update expiry date
+                    if (this.expiryDate) {
+                        this.expiryDate.textContent = conversation.userInfo.expiryDate || '-';
+                    }
+
+                    // Update individual name
+                    const individualNameElement = document.querySelector('.name.col-md-7');
+                    if (individualNameElement) {
+                        individualNameElement.textContent = conversation.userInfo.individualName || '-';
+                    }
+
+                    // Update beneficiary count
+                    if (this.beneficiaryCount) {
+                        this.beneficiaryCount.textContent = conversation.userInfo.beneficiaryCount || '-';
+                    }
+
+                    // Update national ID state
+                    this.currentNationalId = conversation.userInfo.nationalId || '';
+                    this.isNationalIdConfirmed = conversation.isNationalIdConfirmed || false;
+
+                    // Update PDF if available
+                    if (conversation.userInfo.pdfInfo && conversation.userInfo.pdfInfo.pdf_link) {
+                        const tobModal = document.getElementById('TOBModal');
+                        if (tobModal) {
+                            const pdfFrame = tobModal.querySelector('#pdfFrame');
+                            if (pdfFrame) {
+                                pdfFrame.src = conversation.userInfo.pdfInfo.pdf_link;
+                                
+                                // Update the View TOB link if it exists
+                                const tobLink = document.querySelector('a[data-bs-target="#TOBModal"]');
+                                if (tobLink) {
+                                    tobLink.style.display = 'inline-block';
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Update textarea placeholder based on ID confirmation status
+                if (this.textArea) {
+                    this.textArea.placeholder = this.isNationalIdConfirmed ? 
+                        'Ask anything about your policy...' : 
+                        'Enter your 11-digit National ID';
+                }
+
+                // Restore suggested questions if available
+                if (conversation.suggestedQuestions && this.suggestContainer) {
+                    this.suggestContainer.style.display = 'block';
+                    const suggestBtn = this.suggestContainer.querySelector('.suggestbtn');
+                    if (suggestBtn) {
+                        suggestBtn.innerHTML = conversation.suggestedQuestions;
+                        // Reattach click handlers to suggested questions
+                        suggestBtn.querySelectorAll('button').forEach(button => {
+                            button.addEventListener('click', () => {
+                                if (this.textArea) {
+                                    this.textArea.value = button.textContent;
+                                    this.textArea.focus();
+                                    this.updateSendButtonState();
+                                }
+                            });
+                        });
+                    }
+                }
 
                 // Update active state in sidebar
                 document.querySelectorAll('.conversation-item').forEach(item => {
@@ -1658,15 +1749,31 @@ class InsuranceAssistant {
             const token = localStorage.getItem('authToken');
             if (!token || !this.chatHistory.length) return;
 
+            // Get all user information
+            const userInfo = {
+                contractorName: this.contractorName?.textContent || '-',
+                expiryDate: this.expiryDate?.textContent || '-',
+                individualName: document.querySelector('.name.col-md-7')?.textContent || '-',
+                beneficiaryCount: this.beneficiaryCount?.textContent || '-',
+                nationalId: this.currentNationalId || '',
+                pdfInfo: null
+            };
+
+            // Get PDF information if available
+            const tobModal = document.getElementById('TOBModal');
+            if (tobModal) {
+                const pdfFrame = tobModal.querySelector('#pdfFrame');
+                if (pdfFrame && pdfFrame.src) {
+                    userInfo.pdfInfo = {
+                        pdf_link: pdfFrame.src
+                    };
+                }
+            }
+
             // Create a complete state object
             const conversationState = {
                 messages: this.chatHistory,
-                userInfo: {
-                    contractorName: this.contractorName?.textContent || '-',
-                    expiryDate: this.expiryDate?.textContent || '-',
-                    beneficiaryCount: this.beneficiaryCount?.textContent || '-',
-                    nationalId: this.currentNationalId || ''
-                },
+                userInfo: userInfo,
                 suggestedQuestions: this.suggestContainer?.querySelector('.suggestbtn')?.innerHTML || '',
                 isNationalIdConfirmed: this.isNationalIdConfirmed
             };
@@ -1692,6 +1799,107 @@ class InsuranceAssistant {
             }
         } catch (error) {
             console.error('Error saving conversation:', error);
+        }
+    }
+
+    async copyMessageText(text) {
+        try {
+            await navigator.clipboard.writeText(text);
+            this.showToast('Text copied to clipboard!');
+        } catch (err) {
+            console.error('Failed to copy text:', err);
+            this.showToast('Failed to copy text');
+        }
+    }
+
+    showToast(message) {
+        const toast = document.createElement('div');
+        toast.className = 'toast';
+        toast.textContent = message;
+        document.body.appendChild(toast);
+
+        // Trigger reflow to enable animation
+        toast.offsetHeight;
+
+        // Show toast
+        toast.classList.add('show');
+
+        // Remove toast after animation
+        setTimeout(() => {
+            toast.classList.remove('show');
+            setTimeout(() => toast.remove(), 300);
+        }, 2000);
+    }
+
+    async downloadConversationAsPDF() {
+        try {
+            // Create content for PDF
+            let content = '';
+            
+            // Add user information
+            content += 'Insurance Policy Information\n';
+            content += '===========================\n\n';
+            content += `Contractor Name: ${this.contractorName?.textContent || '-'}\n`;
+            content += `Individual Name: ${document.querySelector('.name.col-md-7')?.textContent || '-'}\n`;
+            content += `Contact Expiry Date: ${this.expiryDate?.textContent || '-'}\n`;
+            content += `No. of Beneficiaries: ${this.beneficiaryCount?.textContent || '-'}\n\n`;
+            
+            content += 'Conversation History\n';
+            content += '===================\n\n';
+            
+            // Add chat history
+            this.chatHistory.forEach((msg, index) => {
+                content += `${msg.role === 'user' ? 'You' : 'Assistant'}: ${msg.content}\n\n`;
+            });
+
+            // Create PDF using jsPDF
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF();
+
+            // Split text into lines that fit the page width
+            const lines = doc.splitTextToSize(content, 180);
+            
+            // Add lines to PDF
+            doc.setFontSize(12);
+            let yPosition = 20;
+            
+            lines.forEach(line => {
+                if (yPosition > 280) {
+                    doc.addPage();
+                    yPosition = 20;
+                }
+                doc.text(line, 15, yPosition);
+                yPosition += 7;
+            });
+
+            // Save the PDF
+            const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+            doc.save(`conversation-${timestamp}.pdf`);
+            
+            this.showToast('Conversation downloaded as PDF!');
+        } catch (error) {
+            console.error('Error generating PDF:', error);
+            this.showToast('Failed to download conversation');
+        }
+    }
+
+    async loadJsPDF() {
+        try {
+            // Create script element
+            const script = document.createElement('script');
+            script.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+            script.async = true;
+            
+            // Wait for script to load
+            await new Promise((resolve, reject) => {
+                script.onload = resolve;
+                script.onerror = reject;
+                document.head.appendChild(script);
+            });
+            
+            console.log('jsPDF loaded successfully');
+        } catch (error) {
+            console.error('Failed to load jsPDF:', error);
         }
     }
 }

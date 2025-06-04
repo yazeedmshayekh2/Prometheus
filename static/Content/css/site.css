@@ -677,3 +677,59 @@
     .container {
         transition: none;
     }
+
+/* Toast notification styles */
+.toast {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    background: rgba(0, 0, 0, 0.8);
+    color: white;
+    padding: 12px 24px;
+    border-radius: 4px;
+    z-index: 1000;
+    opacity: 0;
+    transform: translateY(20px);
+    transition: all 0.3s ease;
+}
+
+.toast.show {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+.copy-button {
+    opacity: 0;
+    transition: opacity 0.2s ease;
+    background: none;
+    border: none;
+    padding: 5px;
+    font-size: 16px;
+    color: var(--text-color);
+}
+
+.chat:hover .copy-button {
+    opacity: 1;
+}
+
+.copy-button:hover {
+    transform: scale(1.1);
+}
+
+.download-conversation {
+    width: 100%;
+    padding: 10px;
+    background: var(--primary-color);
+    border: none !important;
+    border-radius: 5px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    transition: background-color 0.2s ease;
+}
+
+.download-conversation:hover {
+    background: var(--primary-color-dark);
+}

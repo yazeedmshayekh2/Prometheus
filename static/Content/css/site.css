@@ -793,6 +793,40 @@
     animation: dislikeAnimation 0.4s ease;
 }
 
+/* Audio button styles */
+.audio-button {
+    font-size: 18px !important;
+    color: #666;
+    transition: all 0.3s ease;
+}
+
+.audio-button:hover {
+    color: #007bff;
+    transform: scale(1.1);
+}
+
+.audio-button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.audio-button.playing {
+    color: #28a745;
+    animation: pulse 1s infinite;
+}
+
+@keyframes pulse {
+    0% {
+        transform: scale(1);
+    }
+    50% {
+        transform: scale(1.1);
+    }
+    100% {
+        transform: scale(1);
+    }
+}
+
 @keyframes likeAnimation {
     0% {
         transform: scale(1);

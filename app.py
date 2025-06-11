@@ -26,6 +26,18 @@ from passlib.context import CryptContext
 from datetime import datetime, timedelta
 import uuid
 from auth_db import AuthDB
+import tempfile
+import os
+import soundfile as sf
+import numpy as np
+
+# TTS imports
+try:
+    from kokoro import KPipeline
+    TTS_AVAILABLE = True
+except ImportError:
+    TTS_AVAILABLE = False
+    print("Warning: Kokoro TTS not available. Install with 'pip install kokoro>=0.9.2'")
 
 # Add ngrok import
 try:
@@ -36,11 +48,12 @@ except ImportError:
 # Initialize QA system and Question Processor
 qa_system = None
 question_processor = None
+tts_pipeline = None
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Initialize QA system on startup"""
-    global qa_system, question_processor
+    global qa_system, question_processor, tts_pipeline
     
     print("Initializing QA system...")
     
@@ -55,6 +68,18 @@ async def lifespan(app: FastAPI):
     
     # Initialize Question Processor
     question_processor = QuestionProcessor(qa_system)
+    
+    # Initialize TTS pipeline
+    if TTS_AVAILABLE:
+        try:
+            print("Initializing TTS pipeline...")
+            tts_pipeline = KPipeline(lang_code='a')  # 'a' for English
+            print("TTS pipeline initialized successfully")
+        except Exception as e:
+            print(f"Failed to initialize TTS pipeline: {e}")
+            tts_pipeline = None
+    else:
+        print("TTS not available - skipping TTS initialization")
     
     print("QA system and Question Processor initialized and ready")
     
@@ -804,6 +829,540 @@ async def test_family_members(request: FamilyTestRequest):
     except Exception as e:
         print(f"Error in test endpoint: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+# TTS endpoint
+class TTSRequest(BaseModel):
+    text: str
+    voice: str = "af_heart"  # Default voice
+
+@api_app.post(
+    "/tts",
+    response_class=StreamingResponse,
+    responses={
+        400: {"model": ErrorResponse, "description": "TTS not available or invalid text"},
+        500: {"model": ErrorResponse, "description": "TTS generation failed"}
+    },
+    tags=["TTS"],
+    summary="Convert text to speech",
+    description="Convert the provided text to audio using Kokoro TTS."
+)
+async def text_to_speech(request: TTSRequest):
+    if not TTS_AVAILABLE or not tts_pipeline:
+        raise HTTPException(
+            status_code=400, 
+            detail="Text-to-speech service is not available"
+        )
+    
+    if not request.text.strip():
+        raise HTTPException(
+            status_code=400, 
+            detail="Text cannot be empty"
+        )
+    
+    try:
+        # Clean text for TTS (remove markdown formatting)
+        clean_text = request.text
+        print(f"Original text length: {len(clean_text)} characters")
+        print(f"Original text preview: {clean_text[:200]}...")
+        
+        # Handle possessives and contractions BEFORE other cleaning
+        # This ensures words like "physician's" are read as "physicians" not "physician s"
+        def fix_possessives_and_contractions(text):
+            # Handle possessive forms more comprehensively
+            # Single possessive: word's → words
+            text = re.sub(r"(\w+)'s\b", r"\1s", text)  # physician's → physicians
+            
+            # Plural possessive: words' → words  
+            text = re.sub(r"(\w+s)'\b", r"\1", text)  # physicians' → physicians
+            
+            # Handle any remaining apostrophes that might create spaces
+            text = re.sub(r"(\w+)'\s*(\w)", r"\1\2", text)  # any word' word → wordword
+            text = re.sub(r"(\w+)\s*'(\w)", r"\1\2", text)  # any word 'word → wordword
+            
+            # Handle standalone apostrophes that create spacing issues
+            text = re.sub(r"\b(\w+)\s*'\s*s\b", r"\1s", text)  # word ' s → words
+            text = re.sub(r"\b(\w+)\s*'\s*t\b", r"\1t", text)  # word ' t → wordt (for contractions)
+            text = re.sub(r"\b(\w+)\s*'\s*ll\b", r"\1 will", text)  # word ' ll → word will
+            text = re.sub(r"\b(\w+)\s*'\s*re\b", r"\1 are", text)  # word ' re → word are
+            text = re.sub(r"\b(\w+)\s*'\s*ve\b", r"\1 have", text)  # word ' ve → word have
+            text = re.sub(r"\b(\w+)\s*'\s*d\b", r"\1 would", text)  # word ' d → word would
+            
+            # Handle common contractions
+            contractions = {
+                "don't": "do not",
+                "won't": "will not", 
+                "can't": "cannot",
+                "shouldn't": "should not",
+                "wouldn't": "would not",
+                "couldn't": "could not",
+                "isn't": "is not",
+                "aren't": "are not",
+                "wasn't": "was not",
+                "weren't": "were not",
+                "hasn't": "has not",
+                "haven't": "have not",
+                "hadn't": "had not",
+                "doesn't": "does not",
+                "didn't": "did not",
+                "you're": "you are",
+                "we're": "we are", 
+                "they're": "they are",
+                "I'm": "I am",
+                "you'll": "you will",
+                "we'll": "we will",
+                "they'll": "they will",
+                "I'll": "I will",
+                "you'd": "you would",
+                "we'd": "we would", 
+                "they'd": "they would",
+                "I'd": "I would",
+                "you've": "you have",
+                "we've": "we have",
+                "they've": "they have",
+                "I've": "I have",
+                "it's": "it is",
+                "that's": "that is",
+                "what's": "what is",
+                "where's": "where is",
+                "who's": "who is",
+                "how's": "how is",
+                "there's": "there is",
+                "here's": "here is"
+            }
+            
+            # Apply contractions with word boundaries to avoid partial matches
+            for contraction, expansion in contractions.items():
+                text = re.sub(r'\b' + re.escape(contraction) + r'\b', expansion, text, flags=re.IGNORECASE)
+            
+            # Final cleanup - remove any remaining stray apostrophes that create spaces
+            text = re.sub(r"(\w)\s*'\s*(\w)", r"\1\2", text)  # Remove any remaining spaced apostrophes
+            text = re.sub(r"(\w)\s+'\s*(\w)", r"\1\2", text)  # Remove multiple spaces around apostrophes
+            
+            return text
+        
+        # Apply possessive and contraction fixes first
+        clean_text = fix_possessives_and_contractions(clean_text)
+        print(f"After possessive/contraction fixes: {len(clean_text)} characters")
+        print(f"Possessive fixed preview: {clean_text[:300]}...")
+        
+        # Special handling for numbers with commas (thousands separators)
+        # Convert comma-separated numbers to written form to avoid TTS confusion
+        def convert_numbers_to_words(text):
+            # Pattern to match numbers with commas (e.g., 7,500, 1,234,567)
+            number_pattern = r'\b(\d{1,3}(?:,\d{3})+)\b'
+            
+            def number_to_words(match):
+                number_str = match.group(1)
+                # Remove commas and convert to integer
+                number = int(number_str.replace(',', ''))
+                
+                # Simple number to words conversion for common cases
+                if number < 1000:
+                    return str(number)
+                elif number < 1000000:
+                    thousands = number // 1000
+                    remainder = number % 1000
+                    if remainder == 0:
+                        return f"{thousands} thousand"
+                    else:
+                        return f"{thousands} thousand {remainder}"
+                elif number < 1000000000:
+                    millions = number // 1000000
+                    remainder = number % 1000000
+                    if remainder == 0:
+                        return f"{millions} million"
+                    elif remainder < 1000:
+                        return f"{millions} million {remainder}"
+                    else:
+                        thousands = remainder // 1000
+                        final_remainder = remainder % 1000
+                        if final_remainder == 0:
+                            return f"{millions} million {thousands} thousand"
+                        else:
+                            return f"{millions} million {thousands} thousand {final_remainder}"
+                else:
+                    return number_str.replace(',', ' ')  # Fallback for very large numbers
+            
+            return re.sub(number_pattern, number_to_words, text)
+        
+        # Apply number conversion before other processing
+        clean_text = convert_numbers_to_words(clean_text)
+        print(f"After number conversion: {len(clean_text)} characters")
+        print(f"Number converted preview: {clean_text[:300]}...")
+        
+        # Special handling for currency amounts
+        # Convert QAR X,XXX to "QAR X thousand XXX" format  
+        clean_text = re.sub(r'QAR\s*(\d+)\s*thousand\s*(\d+)', r'QAR \1 thousand \2', clean_text)
+        clean_text = re.sub(r'QAR\s*(\d+)\s*thousand\b', r'QAR \1 thousand', clean_text)
+        
+        # Handle other common number formats
+        clean_text = re.sub(r'(\d+)%', r'\1 percent', clean_text)  # Percentages
+        clean_text = re.sub(r'(\d+)\.(\d+)', r'\1 point \2', clean_text)  # Decimals
+        
+        print(f"After currency/format conversion: {len(clean_text)} characters")
+        
+        # Remove markdown formatting
+        clean_text = re.sub(r'\*\*(.*?)\*\*', r'\1', clean_text)  # Bold
+        clean_text = re.sub(r'\*(.*?)\*', r'\1', clean_text)      # Italic
+        clean_text = re.sub(r'#{1,6}\s*', '', clean_text)         # Headers
+        clean_text = re.sub(r'\[.*?\]\(.*?\)', '', clean_text)    # Links
+        clean_text = re.sub(r'`(.*?)`', r'\1', clean_text)        # Code
+        
+        # Special handling for lists and bullet points
+        # Add proper pauses between list items
+        clean_text = re.sub(r'\n\s*[-•*]\s+', '\n\nBullet point: ', clean_text)  # Bullet points
+        clean_text = re.sub(r'\n\s*(\d+[\.\)])\s+', r'\n\nNumber \1 ', clean_text)  # Numbered lists
+        clean_text = re.sub(r'\n\s*([a-zA-Z][\.\)])\s+', r'\n\nLetter \1 ', clean_text)  # Lettered lists
+        
+        # Handle other common list patterns
+        clean_text = re.sub(r'\n\s*[▪▫■□]\s+', '\n\nList item: ', clean_text)  # Special bullet chars
+        clean_text = re.sub(r'\n\s*➤\s+', '\n\nPoint: ', clean_text)  # Arrow bullets
+        clean_text = re.sub(r'\n\s*✓\s+', '\n\nCheckmark: ', clean_text)  # Checkmarks
+        
+        # Handle sections and headers better
+        clean_text = re.sub(r'\n\s*([A-Z][^a-z\n]{3,}:)', r'\n\nSection: \1', clean_text)  # ALL CAPS headers
+        clean_text = re.sub(r'\n\s*(\d+\.\s*[A-Z][^:]*:)', r'\n\nSection \1', clean_text)  # Numbered sections
+        
+        # Convert multiple newlines to proper sentence breaks
+        clean_text = re.sub(r'\n{2,}', '. ', clean_text)  # Multiple newlines become sentence breaks
+        clean_text = re.sub(r'\n+', '. ', clean_text)     # Single newlines also become breaks
+        
+        print(f"After list processing: {len(clean_text)} characters")
+        print(f"List processed preview: {clean_text[:300]}...")
+        
+        # Additional TTS-specific cleaning
+        # Remove special characters that might confuse TTS
+        clean_text = re.sub(r'[✓✅❌⚠️📄👍👎🔊⏸️⏳]', '', clean_text)  # Remove emojis
+        clean_text = re.sub(r'[\u2000-\u206F\u2E00-\u2E7F]', ' ', clean_text)  # Remove special punctuation
+        
+        # More selective character filtering - preserve apostrophes in remaining contractions
+        clean_text = re.sub(r'[^\w\s\.,;:!?()\'"-]', ' ', clean_text)  # Keep apostrophes and quotes
+        clean_text = re.sub(r'\s+', ' ', clean_text)  # Normalize whitespace
+        clean_text = clean_text.strip()
+        
+        # Aggressive cleanup of any remaining problematic apostrophe patterns
+        clean_text = re.sub(r"(\w)\s*'\s*(\w)", r'\1\2', clean_text)  # Remove spaces around apostrophes
+        clean_text = re.sub(r"'\s+", "'", clean_text)  # Remove spaces after apostrophes
+        clean_text = re.sub(r"\s+'", "'", clean_text)  # Remove spaces before apostrophes
+        
+        # Handle specific cases that create "word s" patterns
+        clean_text = re.sub(r"\b(\w+)\s+s\b", r"\1s", clean_text)  # word s → words (for missed possessives)
+        clean_text = re.sub(r"\b(\w+)\s+t\b", r"\1t", clean_text)  # word t → wordt (for missed contractions)
+        
+        # Remove any remaining lone apostrophes
+        clean_text = re.sub(r"\s*'\s*", "", clean_text)  # Remove standalone apostrophes
+        
+        # Replace problematic punctuation patterns
+        clean_text = re.sub(r'\.{2,}', '.', clean_text)  # Multiple dots to single
+        clean_text = re.sub(r'!{2,}', '!', clean_text)   # Multiple exclamations
+        clean_text = re.sub(r'\?{2,}', '?', clean_text)  # Multiple questions
+        clean_text = re.sub(r'-{2,}', ' - ', clean_text) # Multiple dashes
+        
+        # Fix spacing around punctuation for better TTS flow
+        clean_text = re.sub(r'\s*\.\s*', '. ', clean_text)
+        clean_text = re.sub(r'\s*,\s*', ', ', clean_text)
+        clean_text = re.sub(r'\s*:\s*', ': ', clean_text)
+        clean_text = re.sub(r'\s*;\s*', '; ', clean_text)
+        
+        # Ensure sentences end properly
+        if clean_text and not clean_text[-1] in '.!?':
+            clean_text += '.'
+        
+        print(f"Final cleaned text length: {len(clean_text)} characters")
+        print(f"Final cleaned preview: {clean_text[:300]}...")
+        
+        # Limit text length to prevent very long generation
+        if len(clean_text) > 50000:
+            print(f"Text too long ({len(clean_text)} chars), truncating to 50000")
+            clean_text = clean_text[:50000] + "..."
+        
+        print(f"Generating TTS for text: {clean_text[:100]}... (Total length: {len(clean_text)} characters)")
+        
+        # For very long texts, provide progress indication
+        if len(clean_text) > 10000:
+            print(f"Processing very long text ({len(clean_text)} chars), this will take significantly longer...")
+        elif len(clean_text) > 5000:
+            print(f"Processing long text ({len(clean_text)} chars), this may take longer...")
+        elif len(clean_text) > 2000:
+            print(f"Processing medium text ({len(clean_text)} chars)...")
+        
+        # For very long texts, break into chunks to avoid TTS stopping
+        if len(clean_text) > 1000:  # Lower threshold for chunking
+            audio_chunks = []
+            
+            # Split into much smaller, safer chunks
+            # Process sentences more individually to ensure everything gets read
+            def split_text_safely(text, max_chunk_size=400):  # Reduced from 800
+                print(f"Splitting text of {len(text)} characters into smaller chunks...")
+                chunks = []
+                
+                # Primary split: sentences ending with punctuation, preserving list structure
+                sentences = re.split(r'(?<=[.!?])\s+', text)
+                
+                print(f"Found {len(sentences)} sentences to process")
+                
+                # Process each sentence individually or in very small groups
+                for i, sentence in enumerate(sentences):
+                    sentence = sentence.strip()
+                    if not sentence:
+                        continue
+                    
+                    print(f"  Sentence {i+1}: {len(sentence)} chars - '{sentence[:80]}...'")
+                    
+                    # If sentence is short enough, make it its own chunk
+                    if len(sentence) <= max_chunk_size:
+                        chunks.append(sentence)
+                        print(f"    Single sentence chunk {len(chunks)}: {len(sentence)} chars")
+                    else:
+                        print(f"    Sentence too long ({len(sentence)} chars), sub-splitting...")
+                        # Split long sentences by commas, semicolons, or natural breaks
+                        sub_chunks = []
+                        
+                        # Try splitting by commas first
+                        comma_parts = re.split(r',\s+', sentence)
+                        current_sub_chunk = ""
+                        
+                        for j, part in enumerate(comma_parts):
+                            part = part.strip()
+                            if len(current_sub_chunk + ", " + part) <= max_chunk_size and current_sub_chunk:
+                                current_sub_chunk += ", " + part
+                            else:
+                                if current_sub_chunk:
+                                    sub_chunks.append(current_sub_chunk.strip())
+                                    print(f"      Sub-chunk saved: {len(current_sub_chunk.strip())} chars")
+                                current_sub_chunk = part
+                        
+                        if current_sub_chunk:
+                            sub_chunks.append(current_sub_chunk.strip())
+                            print(f"      Final sub-chunk: {len(current_sub_chunk.strip())} chars")
+                        
+                        # If still too long, split by words
+                        final_sub_chunks = []
+                        for sub_chunk in sub_chunks:
+                            if len(sub_chunk) <= max_chunk_size:
+                                final_sub_chunks.append(sub_chunk)
+                            else:
+                                words = sub_chunk.split()
+                                word_chunk = ""
+                                for word in words:
+                                    if len(word_chunk + " " + word) <= max_chunk_size and word_chunk:
+                                        word_chunk += " " + word
+                                    else:
+                                        if word_chunk:
+                                            final_sub_chunks.append(word_chunk.strip())
+                                        word_chunk = word
+                                
+                                if word_chunk:
+                                    final_sub_chunks.append(word_chunk.strip())
+                        
+                        chunks.extend(final_sub_chunks)
+                
+                final_chunks = [chunk for chunk in chunks if chunk.strip()]
+                print(f"Final chunking result: {len(final_chunks)} chunks")
+                
+                # Verify no text is lost
+                total_chars_original = len(text.replace(' ', '').replace('\n', ''))
+                total_chars_chunks = sum(len(chunk.replace(' ', '').replace('\n', '')) for chunk in final_chunks)
+                char_ratio = total_chars_chunks / total_chars_original if total_chars_original > 0 else 0
+                print(f"Text preservation: {total_chars_chunks}/{total_chars_original} chars = {char_ratio:.2%}")
+                
+                if char_ratio < 0.95:
+                    print("WARNING: Significant text loss detected during chunking!")
+                
+                return final_chunks
+            
+            text_chunks = split_text_safely(clean_text, max_chunk_size=400)
+            print(f"Split text into {len(text_chunks)} chunks for TTS processing")
+            
+            successful_chunks = 0
+            total_audio_duration = 0
+            for i, chunk in enumerate(text_chunks):
+                chunk = chunk.strip()
+                if not chunk:
+                    continue
+                
+                # Ensure chunk ends with punctuation for better TTS flow
+                if not chunk[-1] in '.!?':
+                    chunk += '.'
+                
+                print(f"\nProcessing chunk {i+1}/{len(text_chunks)}:")
+                print(f"  Length: {len(chunk)} characters")
+                print(f"  Content: '{chunk[:100]}...'")
+                print(f"  Full text: {repr(chunk)}")
+                
+                # Count sentences in this chunk
+                sentence_count = len([s for s in re.split(r'[.!?]+', chunk) if s.strip()])
+                print(f"  Contains approximately {sentence_count} sentences")
+                
+                # Try processing this chunk with multiple fallback strategies
+                chunk_audio = None
+                chunk_duration = 0
+                strategies = [
+                    (chunk, "original"),
+                    (chunk[:300] + "." if len(chunk) > 300 else chunk, "truncated_300"),
+                    (chunk[:200] + "." if len(chunk) > 200 else chunk, "truncated_200"),
+                    (chunk.split('.')[0] + "." if '.' in chunk else chunk, "first_sentence"),
+                    (chunk[:100] + "." if len(chunk) > 100 else chunk, "very_short")
+                ]
+                
+                for attempt_text, strategy in strategies:
+                    try:
+                        print(f"  → Trying strategy '{strategy}' with {len(attempt_text)} chars")
+                        print(f"    Text to TTS: {repr(attempt_text[:100])}...")
+                        
+                        chunk_generator = tts_pipeline(attempt_text, voice=request.voice)
+                        
+                        for j, (gs, ps, audio) in enumerate(chunk_generator):
+                            if audio is not None and len(audio) > 0:
+                                chunk_audio = audio
+                                chunk_duration = len(audio) / 24000
+                                total_audio_duration += chunk_duration
+                                print(f"  ✓ Success! Generated {len(audio)} samples ({chunk_duration:.2f}s)")
+                                print(f"    Cumulative audio: {total_audio_duration:.2f}s")
+                                break
+                            else:
+                                print(f"  ✗ Got empty/null audio from generator")
+                        
+                        if chunk_audio is not None:
+                            break  # Success, move to next chunk
+                        else:
+                            print(f"  ✗ Strategy '{strategy}' failed: No audio generated")
+                            
+                    except Exception as e:
+                        print(f"  ✗ Strategy '{strategy}' failed with exception: {e}")
+                        continue
+                
+                if chunk_audio is not None:
+                    audio_chunks.append(chunk_audio)
+                    successful_chunks += 1
+                    print(f"  ✓ Chunk {i+1} successfully processed")
+                    print(f"    Chunk audio duration: {chunk_duration:.2f}s")
+                    print(f"    Sentences processed: ~{sentence_count}")
+                else:
+                    print(f"  ✗ WARNING: All strategies failed for chunk {i+1}")
+                    print(f"      This text will be skipped: {repr(chunk[:200])}")
+                    # Store failed chunks for analysis
+                    if not hasattr(self, 'failed_chunks'):
+                        failed_chunks = []
+                    failed_chunks.append({
+                        'index': i+1,
+                        'text': chunk,
+                        'length': len(chunk),
+                        'sentences': sentence_count
+                    })
+            
+            print(f"\nProcessing Summary:")
+            print(f"Successfully processed {successful_chunks}/{len(text_chunks)} chunks")
+            print(f"Total audio duration: {total_audio_duration:.2f} seconds")
+            estimated_sentences = sum(len([s for s in re.split(r'[.!?]+', chunk) if s.strip()]) for chunk in text_chunks)
+            print(f"Estimated total sentences in text: {estimated_sentences}")
+            
+            if not audio_chunks:
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Failed to generate any audio chunks. Processed 0/{len(text_chunks)} chunks successfully."
+                )
+            
+            # Combine all audio chunks with appropriate gaps
+            print(f"\nCombining {len(audio_chunks)} audio chunks")
+            combined_audio = audio_chunks[0]
+            
+            for i, chunk in enumerate(audio_chunks[1:], 1):
+                # Add a small gap between chunks (0.15 seconds of silence for smoother flow)
+                silence = np.zeros(int(0.15 * 24000))  # 24kHz sample rate, reduced gap
+                combined_audio = np.concatenate([combined_audio, silence, chunk])
+                print(f"Combined chunk {i+1}, total length: {len(combined_audio)/24000:.2f} seconds")
+            
+            audio_data = combined_audio
+            final_duration = len(audio_data)/24000
+            print(f"Final combined audio: {final_duration:.2f} seconds, {len(audio_data)} samples")
+            print(f"Average speech rate: {len(clean_text)/final_duration:.1f} characters per second")
+        
+        else:
+            # Generate audio using Kokoro for shorter texts
+            print(f"Processing short text: {len(clean_text)} characters")
+            
+            # Even for short texts, add safety measures
+            try:
+                generator = tts_pipeline(clean_text, voice=request.voice)
+                audio_data = None
+                
+                for i, (gs, ps, audio) in enumerate(generator):
+                    if audio is not None and len(audio) > 0:
+                        audio_data = audio
+                        print(f"Generated audio: {len(audio)} samples, {len(audio)/24000:.2f} seconds")
+                        break
+                
+                if audio_data is None:
+                    # Try with a simpler version of the text
+                    simplified_text = clean_text[:500] + "." if len(clean_text) > 500 else clean_text
+                    print(f"Retrying with simplified text: {len(simplified_text)} chars")
+                    
+                    generator = tts_pipeline(simplified_text, voice=request.voice)
+                    for i, (gs, ps, audio) in enumerate(generator):
+                        if audio is not None and len(audio) > 0:
+                            audio_data = audio
+                            break
+                            
+            except Exception as e:
+                print(f"Error with short text processing: {e}")
+                # Last resort: try with just the first sentence
+                first_sentence = clean_text.split('.')[0] + "." if '.' in clean_text else clean_text[:100]
+                print(f"Last resort: trying with first sentence only: '{first_sentence}'")
+                
+                try:
+                    generator = tts_pipeline(first_sentence, voice=request.voice)
+                    for i, (gs, ps, audio) in enumerate(generator):
+                        if audio is not None and len(audio) > 0:
+                            audio_data = audio
+                            break
+                except Exception as e2:
+                    print(f"Last resort also failed: {e2}")
+                    audio_data = None
+        
+        if audio_data is None:
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to generate audio"
+            )
+        
+        # Create a temporary file for the audio
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.wav') as temp_file:
+            # Write audio data to temporary file
+            sf.write(temp_file.name, audio_data, 24000)  # Kokoro outputs at 24kHz
+            temp_file_path = temp_file.name
+        
+        # Read the audio file and stream it
+        def audio_streamer():
+            try:
+                with open(temp_file_path, 'rb') as audio_file:
+                    while True:
+                        chunk = audio_file.read(8192)
+                        if not chunk:
+                            break
+                        yield chunk
+            finally:
+                # Clean up temporary file
+                try:
+                    os.unlink(temp_file_path)
+                except:
+                    pass
+        
+        return StreamingResponse(
+            audio_streamer(),
+            media_type='audio/wav',
+            headers={
+                'Content-Disposition': 'inline; filename="speech.wav"',
+                'Cache-Control': 'no-cache'
+            }
+        )
+        
+    except Exception as e:
+        print(f"TTS Error: {str(e)}")
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Failed to generate speech: {str(e)}"
+        )
 
 # Add cache control middleware
 @app.middleware("http")

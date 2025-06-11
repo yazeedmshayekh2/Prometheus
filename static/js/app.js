@@ -40,6 +40,10 @@ class InsuranceAssistant {
         this.setupSidebar();
         this.loadConversations();
 
+        // Audio properties
+        this.currentAudio = null;
+        this.currentAudioButton = null;
+
         // Initialize
         this.setupEventListeners();
         this.initializeChat();
@@ -361,7 +365,20 @@ class InsuranceAssistant {
                 copyButton.onclick = (e) => {
                     e.stopPropagation();
                     this.addClickAnimation(copyButton);
-                    this.copyMessageText(content);
+                    // Strip HTML tags and decode entities for clean text copying
+                    const cleanText = this.stripHtmlAndDecode(content);
+                    console.log('Copying text:', cleanText.substring(0, 100) + '...');
+                    this.copyMessageText(cleanText);
+                };
+                
+                // Audio button
+                const audioButton = document.createElement('button');
+                audioButton.className = 'action-button audio-button';
+                audioButton.innerHTML = '<img src="Content/img/volume.png" alt="audio" style="width: 20px; height: 20px;">'; // Using emoji for now, can be replaced with an icon
+                audioButton.title = 'Listen to message';
+                audioButton.onclick = (e) => {
+                    e.stopPropagation();
+                    this.toggleAudio(audioButton, content);
                 };
                 
                 // Like button
@@ -386,6 +403,7 @@ class InsuranceAssistant {
                 
                 // Add buttons to action bar
                 actionBar.appendChild(copyButton);
+                actionBar.appendChild(audioButton);
                 actionBar.appendChild(likeButton);
                 actionBar.appendChild(dislikeButton);
                 
@@ -549,6 +567,22 @@ class InsuranceAssistant {
         const div = document.createElement('div');
         div.textContent = text;
         return div.innerHTML;
+    }
+
+    stripHtmlAndDecode(html) {
+        if (!html) return '';
+        
+        // Create a temporary div to convert HTML to text
+        const tempDiv = document.createElement('div');
+        tempDiv.innerHTML = html;
+        
+        // Get the text content (this removes HTML tags and decodes entities)
+        let text = tempDiv.textContent || tempDiv.innerText || '';
+        
+        // Clean up extra whitespace
+        text = text.replace(/\s+/g, ' ').trim();
+        
+        return text;
     }
 
     displaySuggestedQuestions(questions) {
@@ -1853,12 +1887,86 @@ class InsuranceAssistant {
 
     async copyMessageText(text) {
         try {
-            await navigator.clipboard.writeText(text);
-            this.showToast('Text copied to clipboard!');
+            // First try the modern clipboard API
+            if (navigator.clipboard && window.isSecureContext) {
+                await navigator.clipboard.writeText(text);
+                this.showToast('Text copied to clipboard!');
+                return;
+            }
         } catch (err) {
-            console.error('Failed to copy text:', err);
-            this.showToast('Failed to copy text');
+            console.warn('Clipboard API failed, trying fallback:', err);
         }
+
+        // Fallback method for older browsers or non-secure contexts
+        try {
+            // Create a temporary textarea element
+            const textArea = document.createElement('textarea');
+            textArea.value = text;
+            textArea.style.position = 'fixed';
+            textArea.style.left = '-999999px';
+            textArea.style.top = '-999999px';
+            document.body.appendChild(textArea);
+            textArea.focus();
+            textArea.select();
+            
+            // Try to copy using execCommand
+            const successful = document.execCommand('copy');
+            document.body.removeChild(textArea);
+            
+            if (successful) {
+                this.showToast('Text copied to clipboard!');
+            } else {
+                throw new Error('execCommand failed');
+            }
+        } catch (err) {
+            console.error('All copy methods failed:', err);
+            
+            // Final fallback - show the text in a modal for manual copy
+            this.showCopyModal(text);
+        }
+    }
+
+    showCopyModal(text) {
+        // Create modal for manual copy
+        const modal = document.createElement('div');
+        modal.style.cssText = `
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 10000;
+        `;
+        
+        const modalContent = document.createElement('div');
+        modalContent.style.cssText = `
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            max-width: 80%;
+            max-height: 80%;
+            overflow: auto;
+        `;
+        
+        modalContent.innerHTML = `
+            <h3>Copy Message Text</h3>
+            <p>Please select and copy the text below:</p>
+            <textarea readonly style="width: 100%; height: 200px; margin: 10px 0;">${text}</textarea>
+            <button onclick="this.closest('[style*=fixed]').remove()" style="background: #007bff; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer;">Close</button>
+        `;
+        
+        modal.appendChild(modalContent);
+        document.body.appendChild(modal);
+        
+        // Select the text automatically
+        const textarea = modalContent.querySelector('textarea');
+        textarea.select();
+        
+        this.showToast('Please manually copy the selected text');
     }
 
     addClickAnimation(button) {
@@ -1943,6 +2051,107 @@ class InsuranceAssistant {
             toast.classList.remove('show');
             setTimeout(() => toast.remove(), 300);
         }, 2000);
+    }
+
+    // Audio functionality
+    async toggleAudio(button, text) {
+        // If audio is currently playing, stop it
+        if (this.currentAudio && !this.currentAudio.paused) {
+            this.stopAudio();
+            return;
+        }
+
+        try {
+            // Add loading animation
+            this.addClickAnimation(button);
+            const originalContent = button.innerHTML;
+            button.innerHTML = '⏳'; // Loading indicator
+            button.disabled = true;
+
+            // Show different loading message based on text length
+            const textLength = text.length;
+            let loadingMessage = 'Generating audio...';
+            if (textLength > 10000) {
+                loadingMessage = 'Generating audio for very long text (this will take longer, please wait)...';
+            } else if (textLength > 5000) {
+                loadingMessage = 'Generating audio for long text (this may take a moment)...';
+            } else if (textLength > 2000) {
+                loadingMessage = 'Generating audio for medium text...';
+            }
+            this.showToast(loadingMessage);
+
+            // Request TTS from server
+            const response = await fetch('/api/tts', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    text: text,
+                    voice: 'af_heart' // Default voice
+                })
+            });
+
+            if (!response.ok) {
+                throw new Error(`TTS request failed: ${response.status}`);
+            }
+
+            // Create audio blob from response
+            const audioBlob = await response.blob();
+            const audioUrl = URL.createObjectURL(audioBlob);
+
+            // Stop any currently playing audio
+            this.stopAudio();
+
+            // Create and play new audio
+            this.currentAudio = new Audio(audioUrl);
+            this.currentAudioButton = button;
+
+            // Set up audio event listeners
+            this.currentAudio.onplay = () => {
+                button.innerHTML = '⏸️'; // Pause icon
+                button.title = 'Stop audio';
+                this.showToast('Playing audio...');
+            };
+
+            this.currentAudio.onended = () => {
+                this.resetAudioButton();
+                URL.revokeObjectURL(audioUrl); // Clean up
+            };
+
+            this.currentAudio.onerror = () => {
+                this.resetAudioButton();
+                this.showToast('Error playing audio');
+                URL.revokeObjectURL(audioUrl); // Clean up
+            };
+
+            // Start playing
+            await this.currentAudio.play();
+
+        } catch (error) {
+            console.error('Audio error:', error);
+            this.showToast('Failed to generate audio');
+            this.resetAudioButton();
+        } finally {
+            button.disabled = false;
+        }
+    }
+
+    stopAudio() {
+        if (this.currentAudio) {
+            this.currentAudio.pause();
+            this.currentAudio.currentTime = 0;
+            this.currentAudio = null;
+        }
+        this.resetAudioButton();
+    }
+
+    resetAudioButton() {
+        if (this.currentAudioButton) {
+            this.currentAudioButton.innerHTML = '🔊';
+            this.currentAudioButton.title = 'Listen to message';
+            this.currentAudioButton = null;
+        }
     }
 
     async downloadConversationAsPDF() {

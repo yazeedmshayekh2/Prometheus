@@ -1017,6 +1017,50 @@ async def text_to_speech(request: TTSRequest):
         print(f"After currency conversion: {len(clean_text)} characters")
         print(f"Currency converted preview: {clean_text[:300]}...")
         
+        # Special handling for email addresses to make them read more naturally
+        def convert_email_addresses(text):
+            # Pattern to match email addresses
+            email_pattern = r'\b([a-zA-Z0-9._-]+)@([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})\b'
+            
+            def email_to_speech(match):
+                username = match.group(1)
+                domain = match.group(2)
+                
+                # Convert common username patterns
+                username_speech = username.replace('.', ' dot ').replace('_', ' underscore ').replace('-', ' dash ')
+                
+                # Handle domain parts
+                domain_parts = domain.split('.')
+                domain_speech_parts = []
+                
+                for part in domain_parts:
+                    # Handle common domain names
+                    if part.lower() in ['com', 'org', 'net', 'edu', 'gov']:
+                        domain_speech_parts.append(f"dot {part}")
+                    elif part.lower() == 'qa':
+                        domain_speech_parts.append("dot Qatar")
+                    elif part.lower() == 'co':
+                        domain_speech_parts.append("dot co")
+                    elif part.lower() == 'uk':
+                        domain_speech_parts.append("dot UK")
+                    elif part.lower() == 'de':
+                        domain_speech_parts.append("dot Germany")
+                    elif part.lower() == 'fr':
+                        domain_speech_parts.append("dot France")
+                    else:
+                        # For other parts, speak them normally
+                        domain_speech_parts.append(f"dot {part}")
+                
+                domain_speech = ''.join(domain_speech_parts)
+                
+                return f"{username_speech} at {domain_speech}"
+            
+            return re.sub(email_pattern, email_to_speech, text)
+        
+        clean_text = convert_email_addresses(clean_text)
+        print(f"After email conversion: {len(clean_text)} characters")
+        print(f"Email converted preview: {clean_text[:300]}...")
+        
         # Handle other common number formats
         clean_text = re.sub(r'(\d+)%', r'\1 percent', clean_text)  # Percentages
         clean_text = re.sub(r'(\d+)\.(\d+)', r'\1 point \2', clean_text)  # Decimals

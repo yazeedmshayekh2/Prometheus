@@ -213,7 +213,7 @@ If you need assistance using Prometheus:
 
 - Click the "Help" button in the interface
 - Contact your insurance provider's customer service
-- Email support at [support@prometheus.example.com](mailto:support@prometheus.example.com)
+- Email support at [health.claims@dig.qa](mailto:health.claims@dig.qa)
 
 ## Glossary of Insurance Terms
 

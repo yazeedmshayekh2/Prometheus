@@ -984,7 +984,7 @@ class DocumentQASystem:
         """Generate formatted response"""
         try:
             if not search_results or "No information found" in search_results:
-                return "Based on the policy documents, I cannot find specific information about the coverage. Please contact your insurance provider for detailed information about the coverage."
+                return "Based on the policy documents, I cannot find specific information about the coverage. Please contact your insurance provider for detailed information about the coverage, or reach out to health.claims@dig.qa for assistance."
 
             prompt = f"""Based on these policy details, provide a clear response:
 
@@ -1013,7 +1013,7 @@ class DocumentQASystem:
             # First try: Direct search and response
             search_results = self._search_policy_info(query)
             if not search_results or "No relevant information found" in search_results:
-                return "I apologize, but I couldn't find specific information about that in your policy documents. Could you please rephrase your question?"
+                return "I apologize, but I couldn't find specific information about that in your policy documents. Could you please rephrase your question? For additional help, contact health.claims@dig.qa"
             
             # Generate response with explicit formatting instructions
             retry_prompt = f"""Based on these insurance policy details, provide a direct and concise answer.
@@ -1033,7 +1033,7 @@ class DocumentQASystem:
         
         except Exception as e:
             print(f"Error in fallback handling: {str(e)}")
-            return "I apologize, but I encountered an error. Please try rephrasing your question."
+            return "I apologize, but I encountered an error. Please try rephrasing your question or contact health.claims@dig.qa for assistance."
 
     def _generate_collection_name(self, pdf_filename: str) -> str:
         """Generate a consistent collection name from PDF filename"""
@@ -2285,8 +2285,8 @@ Please give a short succinct context to situate this chunk within the overall do
                     # Convert Qdrant results to DocumentChunks
                     for result in results:
                         chunk = DocumentChunk(
-                            content=result.payload.get('content', ''),
-                            context=result.payload.get('context', ''),
+                            content=self._replace_old_email_with_new(result.payload.get('content', '')),
+                            context=self._replace_old_email_with_new(result.payload.get('context', '')),
                             metadata=result.payload.get('metadata', {}),
                             relevance_score=float(result.score) if hasattr(result, 'score') else 0.0,
                             chunk_id=result.payload.get('chunk_id', '')
@@ -3202,10 +3202,13 @@ General Insurance Guidelines:
 
             # Just join if it's a list, otherwise return as-is
             if isinstance(content, list):
-                return "\n".join(content)
+                formatted_content = "\n".join(content)
+            else:
+                formatted_content = content.strip()
                 
-            return content.strip()
-            
+            # Apply email replacement to final response
+            return self._replace_old_email_with_new(formatted_content)
+                
         except Exception as e:
             print(f"Error in format_response: {str(e)}")
             return content
@@ -3499,10 +3502,10 @@ General Insurance Guidelines:
             # Step 6: Create source information
             sources = [
                 SourceInfo(
-                    content=chunk.content[:200] + "..." if len(chunk.content) > 200 else chunk.content,
+                    content=self._replace_old_email_with_new(chunk.content[:200] + "..." if len(chunk.content) > 200 else chunk.content),
                     source=chunk.metadata.get('source', 'Unknown'),
                     score=chunk.relevance_score or 0.0,
-                    relevant_excerpts=[chunk.content[:100] + "..." if len(chunk.content) > 100 else chunk.content],
+                    relevant_excerpts=[self._replace_old_email_with_new(chunk.content[:100] + "..." if len(chunk.content) > 100 else chunk.content)],
                     tags=chunk.tags or []
                 )
                 for chunk in relevant_chunks[:3]  # Top 3 sources
@@ -3554,8 +3557,8 @@ General Insurance Guidelines:
                     
                     for result in results:
                         chunk = DocumentChunk(
-                            content=result.payload.get('content', ''),
-                            context=result.payload.get('context', ''),
+                            content=self._replace_old_email_with_new(result.payload.get('content', '')),
+                            context=self._replace_old_email_with_new(result.payload.get('context', '')),
                             metadata=result.payload.get('metadata', {}),
                             relevance_score=float(result.score),
                             chunk_id=result.payload.get('chunk_id', ''),
@@ -3740,6 +3743,12 @@ General Insurance Guidelines:
         
         return diverse_chunks[:top_k]
 
+    def _replace_old_email_with_new(self, text: str) -> str:
+        """Replace old email address with new one in retrieved text"""
+        if not text:
+            return text
+        return text.replace("info@dig.qa", "health.claims@dig.qa")
+
     def _prepare_context_for_llm(self, chunks: List[DocumentChunk], question: str) -> str:
         """
         Prepare optimized context for LLM processing
@@ -3756,12 +3765,12 @@ General Insurance Guidelines:
                 context_part += f" - {company}"
             context_part += "]\n"
             
-            # Add context if available
+            # Add context if available - apply email replacement
             if chunk.context:
-                context_part += f"Context: {chunk.context}\n"
+                context_part += f"Context: {self._replace_old_email_with_new(chunk.context)}\n"
             
-            # Add main content
-            context_part += f"Content: {chunk.content}\n"
+            # Add main content - apply email replacement
+            context_part += f"Content: {self._replace_old_email_with_new(chunk.content)}\n"
             
             context_parts.append(context_part)
         
@@ -3828,7 +3837,8 @@ ANSWER:"""
 
             response = self.llm._generate_text(prompt, max_tokens=600, temperature=0.2)
             
-            return response.strip()
+            # Apply email replacement to generated response
+            return self._replace_old_email_with_new(response.strip())
             
         except Exception as e:
             print(f"Error generating intelligent response: {str(e)}")

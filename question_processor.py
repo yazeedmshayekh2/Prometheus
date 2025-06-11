@@ -252,7 +252,7 @@ class QuestionProcessor:
     
     def get_fallback_response(self, processed_question: ProcessedQuestion) -> str:
         if processed_question.question_type == QuestionType.CLARIFICATION:
-            return "I'm not sure I understand your question. Could you please rephrase it or provide more details?"
+            return "I'm not sure I understand your question. Could you please rephrase it or provide more details? For additional assistance, you can contact health.claims@dig.qa"
         elif processed_question.confidence_score < 0.5:
-            return "I'm not confident about my understanding of your question. Could you please be more specific?"
-        return "I apologize, but I cannot provide a reliable answer to your question at this time." 
+            return "I'm not confident about my understanding of your question. Could you please be more specific? For additional help, contact health.claims@dig.qa"
+        return "I apologize, but I cannot provide a reliable answer to your question at this time. Please contact health.claims@dig.qa for further assistance." 

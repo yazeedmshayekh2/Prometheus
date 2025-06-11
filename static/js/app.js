@@ -333,23 +333,72 @@ class InsuranceAssistant {
             ? this.markdownToHtml(content)
             : this.escapeHtml(content);
 
-        // Create copy button
-        const copyButton = document.createElement('button');
-        copyButton.className = 'copy-button';
-        copyButton.innerHTML = '📋';
-        copyButton.title = 'Copy message';
-        copyButton.onclick = (e) => {
-            e.stopPropagation();
-            this.copyMessageText(content);
-        };
-
-        // Add content and copy button to message div
+        // Add content to message div
         messageDiv.appendChild(contentWrapper);
-        messageDiv.appendChild(copyButton);
         
         // Add message to container
         if (this.chatContainer) {
             this.chatContainer.appendChild(messageDiv);
+            
+            // Add action buttons only for assistant messages
+            if (role === 'assistant') {
+                // Create a wrapper for assistant messages that includes the message and actions
+                const messageWrapper = document.createElement('div');
+                messageWrapper.className = 'assistant-message-wrapper';
+                
+                // Add the message to the wrapper
+                messageWrapper.appendChild(messageDiv);
+                
+                // Create and add action buttons
+                const actionBar = document.createElement('div');
+                actionBar.className = 'message-actions';
+                
+                // Copy button
+                const copyButton = document.createElement('button');
+                copyButton.className = 'action-button copy-button';
+                copyButton.innerHTML = '<img src="Content/img/copy-2.png" alt="copy" style="width: 20px; height: 20px;">';
+                copyButton.title = 'Copy message';
+                copyButton.onclick = (e) => {
+                    e.stopPropagation();
+                    this.addClickAnimation(copyButton);
+                    this.copyMessageText(content);
+                };
+                
+                // Like button
+                const likeButton = document.createElement('button');
+                likeButton.className = 'action-button like-button';
+                likeButton.innerHTML = '<img src="Content/img/like-unfilled.png" alt="like" style="width: 20px; height: 20px;">';
+                likeButton.title = 'Like this response';
+                likeButton.onclick = (e) => {
+                    e.stopPropagation();
+                    this.likeMessage(likeButton, 'like');
+                };
+                
+                // Dislike button
+                const dislikeButton = document.createElement('button');
+                dislikeButton.className = 'action-button dislike-button';
+                dislikeButton.innerHTML = '<img src="Content/img/dislike-unfilled.png" alt="dislike" style="width: 20px; height: 20px;">';
+                dislikeButton.title = 'Dislike this response';
+                dislikeButton.onclick = (e) => {
+                    e.stopPropagation();
+                    this.likeMessage(dislikeButton, 'dislike');
+                };
+                
+                // Add buttons to action bar
+                actionBar.appendChild(copyButton);
+                actionBar.appendChild(likeButton);
+                actionBar.appendChild(dislikeButton);
+                
+                // Add action bar to the wrapper
+                messageWrapper.appendChild(actionBar);
+                
+                // Add the complete wrapper to chat container
+                this.chatContainer.appendChild(messageWrapper);
+            } else {
+                // For user messages, just add the message directly
+                this.chatContainer.appendChild(messageDiv);
+            }
+            
             // Scroll to bottom
             this.chatContainer.scrollTop = this.chatContainer.scrollHeight;
         }
@@ -1810,6 +1859,71 @@ class InsuranceAssistant {
             console.error('Failed to copy text:', err);
             this.showToast('Failed to copy text');
         }
+    }
+
+    addClickAnimation(button) {
+        button.classList.add('clicked');
+        setTimeout(() => {
+            button.classList.remove('clicked');
+        }, 500);
+    }
+
+    likeMessage(button, action) {
+        // Add click animation
+        button.classList.add('clicked');
+        
+        // Remove animation class after animation completes
+        setTimeout(() => {
+            button.classList.remove('clicked');
+        }, 400);
+        
+        // Get the current state of the button
+        const isActive = button.classList.contains('active');
+        
+        if (action === 'like') {
+            if (isActive) {
+                // Currently active (filled), make it inactive (unfilled)
+                button.classList.remove('active');
+                button.innerHTML = '<img src="Content/img/like-unfilled.png" alt="like" style="width: 20px; height: 20px;">';
+                this.showToast('Like removed');
+            } else {
+                // Currently inactive (unfilled), make it active (filled)
+                button.classList.add('active');
+                button.innerHTML = '<img src="Content/img/like-filled.png" alt="like" style="width: 20px; height: 20px;">';
+                this.showToast('Thank you for your feedback! 👍');
+                
+                // Remove dislike if it was active
+                const actionBar = button.parentElement;
+                const dislikeBtn = actionBar.querySelector('.dislike-button');
+                if (dislikeBtn && dislikeBtn.classList.contains('active')) {
+                    dislikeBtn.classList.remove('active');
+                    dislikeBtn.innerHTML = '<img src="Content/img/dislike-unfilled.png" alt="dislike" style="width: 20px; height: 20px;">';
+                }
+            }
+        } else {
+            if (isActive) {
+                // Currently active (filled), make it inactive (unfilled)
+                button.classList.remove('active');
+                button.innerHTML = '<img src="Content/img/dislike-unfilled.png" alt="dislike" style="width: 20px; height: 20px;">';
+                this.showToast('Dislike removed');
+            } else {
+                // Currently inactive (unfilled), make it active (filled)
+                button.classList.add('active');
+                button.innerHTML = '<img src="Content/img/dislike-filled.png" alt="dislike" style="width: 20px; height: 20px;">';
+                this.showToast('Thank you for your feedback! We\'ll work to improve 👎');
+                
+                // Remove like if it was active
+                const actionBar = button.parentElement;
+                const likeBtn = actionBar.querySelector('.like-button');
+                if (likeBtn && likeBtn.classList.contains('active')) {
+                    likeBtn.classList.remove('active');
+                    likeBtn.innerHTML = '<img src="Content/img/like-unfilled.png" alt="like" style="width: 20px; height: 20px;">';
+                }
+            }
+        }
+        
+        // Here you could send feedback to server if needed
+        console.log(`User ${action}d the message, active: ${!isActive}`);
     }
 
     showToast(message) {

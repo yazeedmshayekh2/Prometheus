@@ -613,21 +613,35 @@
     }
 
     .conversation-item {
-        padding: 10px;
+        padding: 12px 15px;
         margin-bottom: 8px;
         background: #f8f9fa;
         border-radius: 8px;
         cursor: pointer;
-        transition: background 0.2s;
+        transition: all 0.3s ease;
+        border-left: 3px solid transparent;
+        font-size: 9pt;
+        font-weight: 400;
     }
 
     .conversation-item:hover {
         background: #e9ecef;
+        transform: translateX(2px);
+        border-left-color: rgba(185,159,112,0.3);
     }
 
     .conversation-item.active {
         background: #b99f70;
         color: white;
+        font-weight: 500;
+        border-left-color: #8b7a5a;
+        box-shadow: 0 2px 8px rgba(185,159,112,0.3);
+        transform: translateX(3px);
+    }
+
+    .conversation-item.active:hover {
+        background: #a8926a;
+        transform: translateX(3px);
     }
 
     .new-chat-btn {

@@ -43,6 +43,7 @@ class InsuranceAssistant {
         // Audio properties
         this.currentAudio = null;
         this.currentAudioButton = null;
+        this.audioSpeed = 1.0; // Default speed
 
         // Initialize
         this.setupEventListeners();
@@ -183,7 +184,7 @@ class InsuranceAssistant {
         this.currentNationalId = nationalId;
         
             // Add confirmation message to chat
-            this.addMessageToChat('assistant', '✅ ID verified successfully. How can I help you with your policy today?');
+            this.addMessageToChat('assistant', 'ID verified successfully. How can I help you with your policy today?');
             
             // Update textarea placeholder
             if (this.textArea) {
@@ -1629,12 +1630,17 @@ class InsuranceAssistant {
         
         conversations.sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at));
         
-        conversations.forEach((conv, index) => {
+        conversations.forEach((conv) => {
             const item = document.createElement('div');
             item.className = 'conversation-item';
+            item.dataset.id = conv.id;
+            
             if (conv.id === this.currentConversationId) {
                 item.classList.add('active');
             }
+            
+            // Generate title from conversation content
+            const title = this.generateConversationTitle(conv.messages);
             
             // Format the date
             const date = new Date(conv.updated_at);
@@ -1643,29 +1649,20 @@ class InsuranceAssistant {
                 month: 'short'
             });
             
-            // Get the national ID from the conversation if available
-            let nationalId = '';
-            if (conv.messages && conv.messages.length > 0) {
-                const idMessage = conv.messages.find(m => 
-                    m.role === 'user' && 
-                    /^\d{11}$/.test(m.content.trim())
-                );
-                if (idMessage) {
-                    nationalId = idMessage.content.trim();
-                }
-            }
+            // Create title element
+            const titleSpan = document.createElement('span');
+            titleSpan.className = 'conversation-title';
+            titleSpan.textContent = title;
             
-            // Create title based on available information
-            let title;
-            if (nationalId) {
-                // If we have a national ID, use it in the title
-                title = `Chat ${index + 1} - ID: ${nationalId.slice(-4)}`;
-            } else {
-                // Otherwise use a generic numbered title with date
-                title = `Chat ${index + 1} - ${formattedDate}`;
-            }
+            // Create date element
+            const dateSpan = document.createElement('span');
+            dateSpan.className = 'conversation-date';
+            dateSpan.textContent = formattedDate;
             
-            item.textContent = title;
+            // Add elements to item
+            item.appendChild(titleSpan);
+            item.appendChild(dateSpan);
+            
             item.onclick = () => this.loadConversation(conv.id);
             conversationList.appendChild(item);
         });
@@ -1699,8 +1696,14 @@ class InsuranceAssistant {
             this.chatContainer.innerHTML = '';
             const welcomeMessage = document.createElement('div');
             welcomeMessage.className = 'chat assistant';
-            welcomeMessage.innerHTML = '👋 Hi I\'m a chatbot that can help with your medical group policy; Please Enter Your Insured Qatari ID';
+            welcomeMessage.innerHTML = 'Hi I\'m a chatbot that can help with your medical group policy; Please Enter Your Insured Qatari ID';
             this.chatContainer.appendChild(welcomeMessage);
+            
+            // Add initial message to chat history
+            this.chatHistory.push({
+                role: 'assistant',
+                content: welcomeMessage.innerHTML
+            });
         }
         
         // Remove active class from all conversations
@@ -1710,6 +1713,9 @@ class InsuranceAssistant {
 
         // Update send button state
         this.updateSendButtonState();
+        
+        // Save the new conversation to get an ID
+        await this.saveConversation();
     }
 
     async loadConversation(conversationId) {
@@ -2068,8 +2074,16 @@ class InsuranceAssistant {
             button.innerHTML = '⏳'; // Loading indicator
             button.disabled = true;
 
+            // Clean up text for better TTS
+            let ttsText = text
+                // Replace bullet points with sequential words
+                .replace(/^[•]/m, 'First, ') // First bullet point
+                .replace(/(?!^)[•]/g, 'then, ') // Middle bullet points
+                .replace(/([•])[^•\n]*$/g, 'Finally, $1') // Last bullet point
+                .replace(/✅/g, 'Great news! '); // Keep the success message replacement
+
             // Show different loading message based on text length
-            const textLength = text.length;
+            const textLength = ttsText.length;
             let loadingMessage = 'Generating audio...';
             if (textLength > 10000) {
                 loadingMessage = 'Generating audio for very long text (this will take longer, please wait)...';
@@ -2087,7 +2101,7 @@ class InsuranceAssistant {
                     'Content-Type': 'application/json',
                 },
                 body: JSON.stringify({
-                    text: text,
+                    text: ttsText,
                     voice: 'af_heart' // Default voice
                 })
             });
@@ -2107,23 +2121,115 @@ class InsuranceAssistant {
             this.currentAudio = new Audio(audioUrl);
             this.currentAudioButton = button;
 
+            // Create speed control container
+            const actionBar = button.parentElement;
+            const speedControls = document.createElement('div');
+            speedControls.className = 'speed-controls';
+            speedControls.style.cssText = `
+                display: inline-flex;
+                align-items: center;
+                background: var(--bg-color);
+                border-radius: 15px;
+                user-select: none;
+                cursor: pointer;
+            `;
+
+            // Create speed display
+            const speedDisplay = document.createElement('span');
+            speedDisplay.className = 'speed-display';
+            speedDisplay.textContent = '1x';
+            speedDisplay.style.cssText = `
+                min-width: 45px;
+                text-align: center;
+                font-size: 14px;
+                color: var(--text-color);
+                font-weight: 500;
+            `;
+
+            // Add scroll event to control speed
+            let isDragging = false;
+            let startX = 0;
+            let startSpeed = 1;
+            const speeds = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
+            let currentSpeedIndex = 2; // Start at 1x (index 2)
+
+            speedControls.addEventListener('mousedown', (e) => {
+                isDragging = true;
+                startX = e.clientX;
+                startSpeed = this.audioSpeed;
+                speedControls.style.cursor = 'grabbing';
+            });
+
+            document.addEventListener('mousemove', (e) => {
+                if (!isDragging) return;
+                
+                const diff = e.clientX - startX;
+                const speedChange = Math.floor(diff / 30); // Every 30px = 1 speed change
+                let newIndex = speeds.indexOf(startSpeed) + speedChange;
+                
+                // Clamp the index
+                newIndex = Math.max(0, Math.min(speeds.length - 1, newIndex));
+                
+                if (currentSpeedIndex !== newIndex) {
+                    currentSpeedIndex = newIndex;
+                    const newSpeed = speeds[newIndex];
+                    this.setAudioSpeed(newSpeed);
+                    speedDisplay.textContent = newSpeed + 'x';
+                }
+            });
+
+            document.addEventListener('mouseup', () => {
+                if (isDragging) {
+                    isDragging = false;
+                    speedControls.style.cursor = 'pointer';
+                }
+            });
+
+            // Add wheel event for scroll control
+            speedControls.addEventListener('wheel', (e) => {
+                e.preventDefault();
+                const direction = e.deltaY > 0 ? -1 : 1;
+                currentSpeedIndex = Math.max(0, Math.min(speeds.length - 1, currentSpeedIndex + direction));
+                const newSpeed = speeds[currentSpeedIndex];
+                this.setAudioSpeed(newSpeed);
+                speedDisplay.textContent = newSpeed + 'x';
+            });
+
+            // Add hover effect
+            speedControls.addEventListener('mouseenter', () => {
+                speedControls.style.background = 'var(--hover-color, #f0f0f0)';
+            });
+
+            speedControls.addEventListener('mouseleave', () => {
+                speedControls.style.background = 'var(--bg-color)';
+            });
+
+            speedControls.appendChild(speedDisplay);
+            actionBar.appendChild(speedControls);
+
             // Set up audio event listeners
             this.currentAudio.onplay = () => {
-                button.innerHTML = '<img src="Content/img/volume-filled.png" alt="pause" style="width: 20px; height: 20px;">'; // Pause icon
+                button.innerHTML = '<img src="Content/img/stop-button.png" alt="pause" style="width: 20px; height: 20px;">'; // Stop icon
                 button.title = 'Stop audio';
                 this.showToast('Playing audio...');
+                speedControls.style.display = 'inline-flex';
             };
 
             this.currentAudio.onended = () => {
                 this.resetAudioButton();
                 URL.revokeObjectURL(audioUrl); // Clean up
+                speedControls.remove(); // Remove speed controls
             };
 
             this.currentAudio.onerror = () => {
                 this.resetAudioButton();
                 this.showToast('Error playing audio');
                 URL.revokeObjectURL(audioUrl); // Clean up
+                speedControls.remove(); // Remove speed controls
             };
+
+            // Set initial playback speed
+            this.currentAudio.playbackRate = this.audioSpeed;
 
             // Start playing
             await this.currentAudio.play();
@@ -2137,11 +2243,35 @@ class InsuranceAssistant {
         }
     }
 
+    setAudioSpeed(speed) {
+        if (this.currentAudio) {
+            this.audioSpeed = speed;
+            this.currentAudio.playbackRate = speed;
+            
+            // Update active state of speed buttons
+            const speedButtons = document.querySelectorAll('.speed-button');
+            speedButtons.forEach(btn => {
+                btn.classList.remove('active');
+                if (btn.innerHTML === `${speed}x`) {
+                    btn.classList.add('active');
+                }
+            });
+            
+            this.showToast(`Playback speed: ${speed}x`);
+        }
+    }
+
     stopAudio() {
         if (this.currentAudio) {
             this.currentAudio.pause();
             this.currentAudio.currentTime = 0;
             this.currentAudio = null;
+            
+            // Remove speed controls if they exist
+            const speedControls = document.querySelector('.speed-controls');
+            if (speedControls) {
+                speedControls.remove();
+            }
         }
         this.resetAudioButton();
     }
@@ -2170,33 +2300,76 @@ class InsuranceAssistant {
             content += 'Conversation History\n';
             content += '===================\n\n';
             
-            // Add chat history
+            // Add chat history with proper text cleaning
             this.chatHistory.forEach((msg, index) => {
-                content += `${msg.role === 'user' ? 'You' : 'Assistant'}: ${msg.content}\n\n`;
+                // Skip the ID verification message
+                if (msg.role === 'assistant' && msg.content.includes('ID verified successfully')) {
+                    return; // Skip this message
+                }
+                
+                // Clean the content by removing HTML tags and fixing formatting
+                let cleanContent = msg.content;
+                
+                // Remove HTML tags
+                cleanContent = cleanContent.replace(/<[^>]*>/g, '');
+                
+                // Decode HTML entities
+                const textarea = document.createElement('textarea');
+                textarea.innerHTML = cleanContent;
+                cleanContent = textarea.value;
+                
+                // Remove excessive whitespace and normalize spacing
+                cleanContent = cleanContent.replace(/\s+/g, ' ').trim();
+                
+                // Add the message to content
+                content += `${msg.role === 'user' ? 'You' : 'Assistant'}: ${cleanContent}\n\n`;
             });
 
             // Create PDF using jsPDF
             const { jsPDF } = window.jspdf;
             const doc = new jsPDF();
 
-            // Split text into lines that fit the page width
-            const lines = doc.splitTextToSize(content, 180);
+            // Set font to ensure proper character rendering
+            doc.setFont('helvetica', 'normal');
+            doc.setFontSize(11);
+
+            // Split text into lines that fit the page width, preserving words
+            const pageWidth = doc.internal.pageSize.getWidth();
+            const margin = 15;
+            const maxLineWidth = pageWidth - (margin * 2);
+            
+            // Split content into paragraphs first
+            const paragraphs = content.split('\n');
+            const lines = [];
+            
+            paragraphs.forEach(paragraph => {
+                if (paragraph.trim() === '') {
+                    lines.push(''); // Empty line
+                } else {
+                    // Split long paragraphs into multiple lines
+                    const wrappedLines = doc.splitTextToSize(paragraph, maxLineWidth);
+                    lines.push(...wrappedLines);
+                }
+            });
             
             // Add lines to PDF
-            doc.setFontSize(12);
             let yPosition = 20;
+            const lineHeight = 6;
             
             lines.forEach(line => {
-                if (yPosition > 280) {
+                // Check if we need a new page
+                if (yPosition > doc.internal.pageSize.getHeight() - 20) {
                     doc.addPage();
                     yPosition = 20;
                 }
-                doc.text(line, 15, yPosition);
-                yPosition += 7;
+                
+                // Add the line to the PDF
+                doc.text(line, margin, yPosition);
+                yPosition += lineHeight;
             });
 
             // Save the PDF
-            const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+            const timestamp = new Date().toISOString().slice(0, 19).replace(/[:.]/g, '-');
             doc.save(`conversation-${timestamp}.pdf`);
             
             this.showToast('Conversation downloaded as PDF!');
@@ -2223,6 +2396,120 @@ class InsuranceAssistant {
             console.log('jsPDF loaded successfully');
         } catch (error) {
             console.error('Failed to load jsPDF:', error);
+        }
+    }
+
+    // Add after constructor initialization
+    generateConversationTitle(messages) {
+        try {
+            // Skip if no messages
+            if (!messages || messages.length === 0) {
+                return 'New Policy Inquiry';
+            }
+
+            // Key topics and their related keywords
+            const topics = {
+                coverage: ['coverage', 'limit', 'benefits', 'covered', 'insurance', 'policy'],
+                network: ['network', 'hospital', 'clinic', 'provider', 'facility', 'medical center'],
+                claims: ['claim', 'reimbursement', 'payment', 'bill', 'invoice'],
+                family: ['dependent', 'spouse', 'child', 'family', 'member', 'beneficiary'],
+                maternity: ['maternity', 'pregnancy', 'delivery', 'prenatal', 'postnatal'],
+                dental: ['dental', 'teeth', 'orthodontic', 'dentist'],
+                optical: ['optical', 'vision', 'eye', 'glasses', 'contact lens'],
+                medication: ['medicine', 'pharmacy', 'prescription', 'drug'],
+                preapproval: ['approval', 'pre-approval', 'authorization', 'pre-auth'],
+                general: ['information', 'details', 'explain', 'tell', 'what', 'how']
+            };
+
+            // Find the first substantive question after ID verification
+            let relevantMessages = [];
+            let hasIdVerification = false;
+            let nationalId = '';
+            
+            for (let msg of messages) {
+                // Extract National ID if present
+                if (msg.role === 'user' && /^\d{11}$/.test(msg.content.trim())) {
+                    nationalId = msg.content.trim();
+                    continue;
+                }
+
+                // Check for ID verification
+                if (msg.role === 'assistant' && msg.content.includes('ID verified successfully')) {
+                    hasIdVerification = true;
+                    continue;
+                }
+
+                // Collect relevant messages after ID verification
+                if (hasIdVerification && msg.role === 'user') {
+                    relevantMessages.push(msg.content.toLowerCase());
+                }
+            }
+
+            // If we have relevant messages, analyze them for topics
+            if (relevantMessages.length > 0) {
+                // Count topic occurrences
+                const topicCounts = {};
+                for (const [topic, keywords] of Object.entries(topics)) {
+                    topicCounts[topic] = 0;
+                    keywords.forEach(keyword => {
+                        relevantMessages.forEach(msg => {
+                            if (msg.includes(keyword)) {
+                                topicCounts[topic]++;
+                            }
+                        });
+                    });
+                }
+
+                // Get the most discussed topic
+                const mainTopic = Object.entries(topicCounts)
+                    .sort((a, b) => b[1] - a[1])
+                    .filter(([_, count]) => count > 0)[0]?.[0];
+
+                // Generate title based on main topic and first question
+                if (mainTopic) {
+                    const topicTitles = {
+                        coverage: 'Policy Coverage Inquiry',
+                        network: 'Medical Network Discussion',
+                        claims: 'Claims and Reimbursement',
+                        family: 'Family Coverage Details',
+                        maternity: 'Maternity Benefits',
+                        dental: 'Dental Coverage Inquiry',
+                        optical: 'Optical Benefits',
+                        medication: 'Medication Coverage',
+                        preapproval: 'Pre-approval Request',
+                        general: 'General Policy Information'
+                    };
+
+                    // If we have a first question, make the title more specific
+                    if (relevantMessages[0]) {
+                        const questionWords = relevantMessages[0]
+                            .replace(/[?!.,]/g, '')
+                            .split(' ')
+                            .slice(0, 3)
+                            .join(' ');
+                        
+                        return `${topicTitles[mainTopic]} - ${questionWords}...`;
+                    }
+
+                    return topicTitles[mainTopic];
+                }
+            }
+
+            // If we have a national ID but no topic identified
+            if (nationalId) {
+                return `Policy Inquiry - ID: ${nationalId.slice(-4)}`;
+            }
+
+            // If ID verified but no specific topic
+            if (hasIdVerification) {
+                return 'Medical Policy Information';
+            }
+
+            // Default meaningful title for new conversations
+            return 'New Policy Consultation';
+        } catch (error) {
+            console.error('Error generating title:', error);
+            return 'Medical Policy Inquiry';
         }
     }
 }

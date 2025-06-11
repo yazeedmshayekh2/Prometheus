@@ -3208,7 +3208,7 @@ General Insurance Guidelines:
                 
             # Apply email replacement to final response
             return self._replace_old_email_with_new(formatted_content)
-                
+            
         except Exception as e:
             print(f"Error in format_response: {str(e)}")
             return content

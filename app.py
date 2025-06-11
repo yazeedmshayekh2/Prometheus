@@ -833,7 +833,7 @@ async def test_family_members(request: FamilyTestRequest):
 # TTS endpoint
 class TTSRequest(BaseModel):
     text: str
-    voice: str = "af_heart"  # Default voice
+    voice: str = "af_bella"  # Default voice
 
 @api_app.post(
     "/tts",
@@ -865,7 +865,7 @@ async def text_to_speech(request: TTSRequest):
         print(f"Original text length: {len(clean_text)} characters")
         print(f"Original text preview: {clean_text[:200]}...")
         
-        # Handle possessives and contractions BEFORE other cleaning
+        # Handle possessive and contractions BEFORE other cleaning
         # This ensures words like "physician's" are read as "physicians" not "physician s"
         def fix_possessives_and_contractions(text):
             # Handle possessive forms more comprehensively
@@ -875,23 +875,23 @@ async def text_to_speech(request: TTSRequest):
             # Plural possessive: words' → words  
             text = re.sub(r"(\w+s)'\b", r"\1", text)  # physicians' → physicians
             
-            # Handle any remaining apostrophes that might create spaces
-            text = re.sub(r"(\w+)'\s*(\w)", r"\1\2", text)  # any word' word → wordword
-            text = re.sub(r"(\w+)\s*'(\w)", r"\1\2", text)  # any word 'word → wordword
-            
-            # Handle standalone apostrophes that create spacing issues
-            text = re.sub(r"\b(\w+)\s*'\s*s\b", r"\1s", text)  # word ' s → words
-            text = re.sub(r"\b(\w+)\s*'\s*t\b", r"\1t", text)  # word ' t → wordt (for contractions)
-            text = re.sub(r"\b(\w+)\s*'\s*ll\b", r"\1 will", text)  # word ' ll → word will
-            text = re.sub(r"\b(\w+)\s*'\s*re\b", r"\1 are", text)  # word ' re → word are
-            text = re.sub(r"\b(\w+)\s*'\s*ve\b", r"\1 have", text)  # word ' ve → word have
-            text = re.sub(r"\b(\w+)\s*'\s*d\b", r"\1 would", text)  # word ' d → word would
-            
-            # Handle common contractions
+            # Handle common contractions - expand them to full forms for better TTS
             contractions = {
+                # You contractions
+                "you're": "you are",
+                "youre": "you are",
+                "you've": "you have",
+                "youve": "you have",
+                "you'll": "you will",
+                "youll": "you will",
+                "you'd": "you would",
+                "youd": "you would",
+                
+                # Other common contractions
                 "don't": "do not",
                 "won't": "will not", 
                 "can't": "cannot",
+                "cannot": "can not",  # Split for better pronunciation
                 "shouldn't": "should not",
                 "wouldn't": "would not",
                 "couldn't": "could not",
@@ -904,39 +904,59 @@ async def text_to_speech(request: TTSRequest):
                 "hadn't": "had not",
                 "doesn't": "does not",
                 "didn't": "did not",
-                "you're": "you are",
-                "we're": "we are", 
+                "we're": "we are",
+                "were": "we are",
                 "they're": "they are",
+                "theyre": "they are",
                 "I'm": "I am",
-                "you'll": "you will",
+                "Im": "I am",
                 "we'll": "we will",
+                "well": "we will",
                 "they'll": "they will",
+                "theyll": "they will",
                 "I'll": "I will",
-                "you'd": "you would",
-                "we'd": "we would", 
+                "Ill": "I will",
+                "we'd": "we would",
+                "wed": "we would",
                 "they'd": "they would",
+                "theyd": "they would",
                 "I'd": "I would",
-                "you've": "you have",
+                "Id": "I would",
                 "we've": "we have",
+                "weve": "we have",
                 "they've": "they have",
+                "theyve": "they have",
                 "I've": "I have",
+                "Ive": "I have",
                 "it's": "it is",
+                "its": "it is",
                 "that's": "that is",
+                "thats": "that is",
                 "what's": "what is",
+                "whats": "what is",
                 "where's": "where is",
+                "wheres": "where is",
                 "who's": "who is",
+                "whos": "who is",
                 "how's": "how is",
+                "hows": "how is",
                 "there's": "there is",
-                "here's": "here is"
+                "theres": "there is",
+                "here's": "here is",
+                "heres": "here is"
             }
             
             # Apply contractions with word boundaries to avoid partial matches
             for contraction, expansion in contractions.items():
                 text = re.sub(r'\b' + re.escape(contraction) + r'\b', expansion, text, flags=re.IGNORECASE)
             
-            # Final cleanup - remove any remaining stray apostrophes that create spaces
+            # Handle any remaining apostrophes that might create spaces
             text = re.sub(r"(\w)\s*'\s*(\w)", r"\1\2", text)  # Remove any remaining spaced apostrophes
             text = re.sub(r"(\w)\s+'\s*(\w)", r"\1\2", text)  # Remove multiple spaces around apostrophes
+            
+            # Final cleanup of possessives and remaining contractions
+            text = re.sub(r"\b(\w+)\s+s\b", r"\1s", text)  # word s → words (for missed possessives)
+            text = re.sub(r"\b(\w+)\s+t\b", r"\1t", text)  # word t → wordt (for missed contractions)
             
             return text
         
@@ -1060,6 +1080,10 @@ async def text_to_speech(request: TTSRequest):
         clean_text = convert_email_addresses(clean_text)
         print(f"After email conversion: {len(clean_text)} characters")
         print(f"Email converted preview: {clean_text[:300]}...")
+        
+        # Handle ampersand (&) - convert to "and"
+        clean_text = re.sub(r'\s*&\s*', ' and ', clean_text)
+        print(f"After ampersand conversion: {clean_text[:300]}...")
         
         # Handle other common number formats
         clean_text = re.sub(r'(\d+)%', r'\1 percent', clean_text)  # Percentages

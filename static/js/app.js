@@ -2148,7 +2148,7 @@ class InsuranceAssistant {
 
     resetAudioButton() {
         if (this.currentAudioButton) {
-            this.currentAudioButton.innerHTML = '🔊';
+            this.currentAudioButton.innerHTML = '<img src="Content/img/volume.png" alt="audio" style="width: 20px; height: 20px;">';
             this.currentAudioButton.title = 'Listen to message';
             this.currentAudioButton = null;
         }

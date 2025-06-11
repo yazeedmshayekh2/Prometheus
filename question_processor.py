@@ -212,15 +212,33 @@ class QuestionProcessor:
         
         # Prepare chat history for multi-turn
         chat_history = chat_history if chat_history is not None else []
+        
+        # Modify the question to focus on coverage first
+        question_focus = processed_question.normalized_question
+        if not any(word in question_focus.lower() for word in ['exclusion', 'limitation', 'restrict', 'not cover']):
+            # If not specifically asking about exclusions, focus on coverage
+            question_focus = f"what is covered for {question_focus}"
+        
         base_response = self.qa_system.query(
-            question=processed_question.normalized_question,
+            question=question_focus,
             national_id=national_id,
             chat_history=chat_history
         )
         
         if base_response:
+            # Ensure the answer starts with coverage information
+            answer = base_response.answer
+            if not any(word in processed_question.normalized_question.lower() for word in ['exclusion', 'limitation', 'restrict', 'not cover']):
+                # Remove any leading exclusion/limitation text unless specifically asked
+                lines = answer.split('\n')
+                filtered_lines = []
+                for line in lines:
+                    if not any(word in line.lower() for word in ['exclusion:', 'limitation:', 'not covered:', 'restrictions:']):
+                        filtered_lines.append(line)
+                answer = '\n'.join(filtered_lines)
+            
             candidates.append(AnswerCandidate(
-                answer=base_response.answer,
+                answer=answer,
                 confidence=max(s.score for s in base_response.sources) if base_response.sources else 0.0,
                 sources=[{
                     "content": str(src.content),
@@ -231,7 +249,7 @@ class QuestionProcessor:
             
             # Generate explanation for complex questions
             if processed_question.question_type in [QuestionType.COMPARATIVE, QuestionType.PROCEDURAL]:
-                explanation = self._generate_explanation(base_response.answer, processed_question)
+                explanation = self._generate_explanation(answer, processed_question)
                 candidates[0].explanation = explanation
         
         # Add to conversation history

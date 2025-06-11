@@ -2109,7 +2109,7 @@ class InsuranceAssistant {
 
             // Set up audio event listeners
             this.currentAudio.onplay = () => {
-                button.innerHTML = '⏸️'; // Pause icon
+                button.innerHTML = '<img src="Content/img/volume-filled.png" alt="pause" style="width: 20px; height: 20px;">'; // Pause icon
                 button.title = 'Stop audio';
                 this.showToast('Playing audio...');
             };

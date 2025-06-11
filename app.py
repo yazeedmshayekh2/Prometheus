@@ -990,16 +990,38 @@ async def text_to_speech(request: TTSRequest):
         print(f"After number conversion: {len(clean_text)} characters")
         print(f"Number converted preview: {clean_text[:300]}...")
         
-        # Special handling for currency amounts
-        # Convert QAR X,XXX to "QAR X thousand XXX" format  
-        clean_text = re.sub(r'QAR\s*(\d+)\s*thousand\s*(\d+)', r'QAR \1 thousand \2', clean_text)
-        clean_text = re.sub(r'QAR\s*(\d+)\s*thousand\b', r'QAR \1 thousand', clean_text)
+        # Special handling for currency amounts - convert QR/QAR to "Qatari Riyal"
+        # Handle QR/QAR with comma-separated numbers first
+        def convert_qatari_currency(text):
+            # Pattern for QR/QAR followed by numbers (with or without commas)
+            # QAR 7,500 -> 7500 Qatari Riyal
+            # QR 1,000 -> 1000 Qatari Riyal  
+            # QAR 50 -> 50 Qatari Riyal
+            
+            # First handle comma-separated amounts (these were already converted by convert_numbers_to_words)
+            # Match patterns like "QAR 7 thousand 500" -> "7500 Qatari Riyal"
+            text = re.sub(r'QA?R\s*(\d+)\s*thousand\s*(\d+)', r'\1\2 Qatari Riyal', text)
+            # Match patterns like "QAR 3 thousand" -> "3000 Qatari Riyal"
+            text = re.sub(r'QA?R\s*(\d+)\s*thousand\b', r'\g<1>000 Qatari Riyal', text)
+            
+            # Handle remaining comma-separated amounts that weren't converted
+            text = re.sub(r'QA?R\s*(\d{1,3}(?:,\d{3})+)', 
+                         lambda m: f"{m.group(1).replace(',', '')} Qatari Riyal", text)
+            
+            # Then handle simple amounts without commas
+            text = re.sub(r'QA?R\s*(\d+)', r'\1 Qatari Riyal', text)
+            
+            return text
+        
+        clean_text = convert_qatari_currency(clean_text)
+        print(f"After currency conversion: {len(clean_text)} characters")
+        print(f"Currency converted preview: {clean_text[:300]}...")
         
         # Handle other common number formats
         clean_text = re.sub(r'(\d+)%', r'\1 percent', clean_text)  # Percentages
         clean_text = re.sub(r'(\d+)\.(\d+)', r'\1 point \2', clean_text)  # Decimals
         
-        print(f"After currency/format conversion: {len(clean_text)} characters")
+        print(f"After other format conversion: {len(clean_text)} characters")
         
         # Remove markdown formatting
         clean_text = re.sub(r'\*\*(.*?)\*\*', r'\1', clean_text)  # Bold

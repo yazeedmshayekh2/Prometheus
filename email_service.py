@@ -16,7 +16,7 @@ class EmailService:
         self.smtp_username = os.getenv('SMTP_USERNAME')
         self.smtp_password = os.getenv('SMTP_PASSWORD')
         self.from_email = os.getenv('FROM_EMAIL', self.smtp_username)
-        self.from_name = os.getenv('FROM_NAME', 'Prometheus Insurance Assistant')
+        self.from_name = os.getenv('FROM_NAME', 'DIG Medical Assistant')
         
         # For development/testing, we can use a mock email service
         self.use_mock = os.getenv('USE_MOCK_EMAIL', 'True').lower() == 'true'
@@ -55,11 +55,11 @@ class EmailService:
         Password Reset Email (MOCK MODE)
         ================================
         To: {to_email}
-        Subject: Reset Your Password - Prometheus Insurance Assistant
+        Subject: Reset Your Password - DIG Medical Assistant
         
         Hello {user_name},
         
-        You requested a password reset for your Prometheus Insurance Assistant account.
+        You requested a password reset for your DIG Medical Assistant account.
         
         Please click the following link to reset your password:
         {reset_link}
@@ -96,7 +96,7 @@ class EmailService:
         
         # Create message
         msg = MIMEMultipart('alternative')
-        msg['Subject'] = 'Reset Your Password - Prometheus Insurance Assistant'
+        msg['Subject'] = 'Reset Your Password - DIG Medical Assistant'
         msg['From'] = f"{self.from_name} <{self.from_email}>"
         msg['To'] = to_email
 
@@ -237,12 +237,12 @@ class EmailService:
                         <img src="cid:dig-sm-logo-w.png" alt="Doha Insurance Group Logo">
                     </div>
                     <div class="company-name">Doha Insurance Group</div>
-                    <div class="tagline">💉 Medical Group Assistant - DIG</div>
+                    <div class="tagline">💉 Medical Assistant - DIG</div>
                 </div>
                 <div class="content">
                     <div class="greeting">Hello {user_name},</div>
                     
-                    <p>You requested a password reset for your <strong>Prometheus Insurance Assistant</strong> account.</p>
+                    <p>You requested a password reset for your <strong>DIG Medical Assistant</strong> account.</p>
                     
                     <p>Click the button below to securely reset your password:</p>
                     
@@ -262,11 +262,11 @@ class EmailService:
                     <div class="footer">
                         <div>
                             <img src="cid:dig-sm-logo-w.png" alt="DIG" style="width: 20px; height: 20px; vertical-align: middle; margin-right: 8px; background: #1b1b1b; border-radius: 4px; padding: 2px;">
-                            <strong>Doha Insurance Group</strong> - Prometheus Insurance Assistant
+                            <strong>Doha Insurance Group</strong> - DIG Medical Assistant
                         </div>
                         <div style="margin-top: 10px;">This is an automated security message. Please do not reply to this email.</div>
                         <div class="security-notice">
-                            🛡️ <strong>Security Notice:</strong> Prometheus Insurance Assistant will never ask for your password via email. 
+                            🛡️ <strong>Security Notice:</strong> DIG Medical Assistant will never ask for your password via email. 
                             Only use the reset link above to change your password.
                         </div>
                     </div>
@@ -280,12 +280,12 @@ class EmailService:
         text_content = f"""
         ============================================
         DOHA INSURANCE GROUP (DIG)
-        💉 Medical Group Assistant - Prometheus Insurance Assistant
+        💉 Medical Assistant - DIG Medical Assistant
         ============================================
 
         Hello {user_name},
 
-        You requested a password reset for your Prometheus Insurance Assistant account.
+        You requested a password reset for your DIG Medical Assistant account.
 
         Please click the following link to reset your password:
         {reset_link}
@@ -298,9 +298,8 @@ class EmailService:
         --------------------------------------------
         Best regards,
         Doha Insurance Group (DIG)
-        Prometheus Insurance Team
 
-        🛡️ Security Notice: Prometheus Insurance Assistant will never ask for 
+        🛡️ Security Notice: DIG Medical Assistant will never ask for 
         your password via email. Only use the reset link above to change your password.
 
         This is an automated security message. Please do not reply to this email.

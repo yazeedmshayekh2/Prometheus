@@ -24,18 +24,30 @@
         <div class="auth-container">
             <div class="auth-box">
                 <h2>Sign Up</h2>
+                
+                <div id="messageContainer"></div>
+                
                 <form id="signupForm" class="auth-form">
                     <div class="form-group">
-                        <input type="text" class="form-control" id="name" placeholder="Full Name" required>
+                        <input type="text" id="name" placeholder="Full Name" required>
                     </div>
                     <div class="form-group">
-                        <input type="email" class="form-control" id="email" placeholder="Email" required>
+                        <input type="email" id="email" placeholder="Email" required>
                     </div>
                     <div class="form-group">
-                        <input type="password" class="form-control" id="password" placeholder="Password" required>
+                        <input type="password" id="password" placeholder="Password" required>
+                        <div id="passwordRequirements" class="password-requirements" style="margin-top: 5px; font-size: 8pt; color: #666;">
+                            <div class="requirement" id="req-length">• At least 8 characters</div>
+                            <div class="requirement" id="req-uppercase">• At least one uppercase letter</div>
+                            <div class="requirement" id="req-lowercase">• At least one lowercase letter</div>
+                            <div class="requirement" id="req-number">• At least one number</div>
+                            <div class="requirement" id="req-special">• At least one special character</div>
+                            <div class="requirement" id="req-no-spaces">• No spaces allowed</div>
+                        </div>
                     </div>
                     <div class="form-group">
-                        <input type="password" class="form-control" id="confirmPassword" placeholder="Confirm Password" required>
+                        <input type="password" id="confirmPassword" placeholder="Confirm Password" required>
+                        <div id="passwordMatch" style="margin-top: 5px; font-size: 8pt;"></div>
                     </div>
                     <button type="submit" class="btnSend">Sign Up</button>
                     <div class="auth-links">

@@ -52,3 +52,7 @@ bcrypt
 # Text-to-Speech
 kokoro
 soundfile
+
+# Email functionality for forgot password
+aiosmtplib
+email-validator

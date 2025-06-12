@@ -26,10 +26,14 @@ from passlib.context import CryptContext
 from datetime import datetime, timedelta
 import uuid
 from auth_db import AuthDB
+from email_service import email_service
 import tempfile
 import os
 import soundfile as sf
 import numpy as np
+import asyncio
+import traceback
+import warnings
 
 # TTS imports
 try:
@@ -1522,6 +1526,14 @@ async def signup(request: Request):
     try:
         data = await request.json()
         
+        # Validate password strength
+        password_validation = validate_password(data["password"])
+        if not password_validation["is_valid"]:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Password validation failed: {'; '.join(password_validation['errors'])}"
+            )
+        
         # Check if user exists
         if auth_db.get_user_by_email(data["email"]):
             raise HTTPException(
@@ -1563,6 +1575,184 @@ async def login(request: Request):
         return {"access_token": access_token, "token_type": "bearer", "name": user["name"]}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+# Forgot Password Models
+class ForgotPasswordRequest(BaseModel):
+    email: str
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    new_password: str
+
+@api_app.post("/forgot-password")
+async def forgot_password(request_data: ForgotPasswordRequest, request: Request):
+    """Send password reset email"""
+    try:
+        # Check if user exists
+        user = auth_db.get_user_by_email(request_data.email)
+        if not user:
+            # For security, always return success even if email doesn't exist
+            return {"message": "If the email exists in our system, a password reset link has been sent."}
+        
+        # Generate reset token
+        reset_token = str(uuid.uuid4())
+        expires_at = datetime.now() + timedelta(hours=168)  # Token expires in 7 days (168 hours)
+        
+        # Save reset token to database
+        if not auth_db.create_password_reset_token(user["id"], reset_token, expires_at):
+            raise HTTPException(status_code=500, detail="Failed to create reset token")
+        
+        # Get base URL from request
+        base_url = f"{request.url.scheme}://{request.url.netloc}"
+        
+        # Send email
+        email_sent = await email_service.send_password_reset_email(
+            user["email"], 
+            user["name"], 
+            reset_token, 
+            base_url
+        )
+        
+        if not email_sent:
+            # Log the error but still return success for security
+            print(f"Failed to send password reset email to {user['email']}")
+        
+        return {"message": "If the email exists in our system, a password reset link has been sent."}
+    
+    except Exception as e:
+        print(f"Forgot password error: {e}")
+        raise HTTPException(status_code=500, detail="An error occurred while processing your request")
+
+# Password validation function
+def validate_password(password: str) -> dict:
+    """
+    Validate password strength and return validation results
+    """
+    errors = []
+    
+    # Check minimum length
+    if len(password) < 8:
+        errors.append("Password must be at least 8 characters long")
+    
+    # Check maximum length (optional security measure)
+    if len(password) > 128:
+        errors.append("Password must be less than 128 characters long")
+    
+    # Check for at least one uppercase letter
+    if not re.search(r'[A-Z]', password):
+        errors.append("Password must contain at least one uppercase letter")
+    
+    # Check for at least one lowercase letter
+    if not re.search(r'[a-z]', password):
+        errors.append("Password must contain at least one lowercase letter")
+    
+    # Check for at least one digit
+    if not re.search(r'\d', password):
+        errors.append("Password must contain at least one number")
+    
+    # Check for at least one special character
+    if not re.search(r'[!@#$%^&*(),.?":{}|<>]', password):
+        errors.append("Password must contain at least one special character (!@#$%^&*(),.?\":{}|<>)")
+    
+    # Check for no spaces
+    if ' ' in password:
+        errors.append("Password must not contain spaces")
+    
+    # Check for common weak patterns
+    weak_patterns = [
+        r'123456',
+        r'password',
+        r'qwerty',
+        r'abc123',
+        r'admin'
+    ]
+    
+    for pattern in weak_patterns:
+        if re.search(pattern, password.lower()):
+            errors.append("Password contains common weak patterns. Please choose a stronger password")
+            break
+    
+    return {
+        "is_valid": len(errors) == 0,
+        "errors": errors
+    }
+
+@api_app.post("/reset-password")
+async def reset_password(request_data: ResetPasswordRequest):
+    """Reset user password using reset token"""
+    try:
+        # Validate token
+        token_data = auth_db.get_valid_reset_token(request_data.token)
+        if not token_data:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid or expired reset token"
+            )
+        
+        # Validate new password strength
+        password_validation = validate_password(request_data.new_password)
+        if not password_validation["is_valid"]:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Password validation failed: {'; '.join(password_validation['errors'])}"
+            )
+        
+        # Check if new password is the same as current password
+        current_user = auth_db.get_user_by_id(token_data["user_id"])
+        if current_user and pwd_context.verify(request_data.new_password, current_user["hashed_password"]):
+            raise HTTPException(
+                status_code=400,
+                detail="New password cannot be the same as your current password. Please choose a different password."
+            )
+        
+        # Hash new password
+        hashed_password = pwd_context.hash(request_data.new_password)
+        
+        # Update user password
+        if not auth_db.update_user_password(token_data["user_id"], hashed_password):
+            raise HTTPException(status_code=500, detail="Failed to update password")
+        
+        # Mark token as used
+        auth_db.use_reset_token(request_data.token)
+        
+        # Clean up expired tokens
+        auth_db.cleanup_expired_tokens()
+        
+        return {"message": "Password has been reset successfully"}
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Reset password error: {e}")
+        raise HTTPException(status_code=500, detail="An error occurred while resetting your password")
+
+@api_app.get("/validate-reset-token/{token}")
+async def validate_reset_token(token: str):
+    """Validate if a reset token is valid"""
+    try:
+        print(f"Validating reset token: {token[:8]}...")
+        token_data = auth_db.get_valid_reset_token(token)
+        print(f"Token validation result: {token_data is not None}")
+        
+        if not token_data:
+            print("Token is invalid or expired")
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid or expired reset token"
+            )
+        
+        print(f"Token is valid for user: {token_data['email']}")
+        return {
+            "valid": True,
+            "user_name": token_data["name"],
+            "email": token_data["email"]
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Validate token error: {e}")
+        raise HTTPException(status_code=500, detail="An error occurred while validating the token")
 
 # Request models for conversations
 class UserInfo(BaseModel):

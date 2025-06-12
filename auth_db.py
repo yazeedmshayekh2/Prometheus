@@ -1,5 +1,5 @@
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timedelta
 import os
 import uuid  # Add UUID import
 
@@ -23,6 +23,19 @@ class AuthDB:
                     name TEXT,
                     hashed_password TEXT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            
+            # Create password reset tokens table
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS password_reset_tokens (
+                    id TEXT PRIMARY KEY,
+                    user_id TEXT,
+                    token TEXT UNIQUE,
+                    expires_at TIMESTAMP,
+                    used BOOLEAN DEFAULT FALSE,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (user_id) REFERENCES users(id)
                 )
             ''')
             
@@ -93,6 +106,97 @@ class AuthDB:
                     'hashed_password': user[3]
                 }
             return None
+
+    def get_user_by_id(self, user_id):
+        """Get user by ID"""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT * FROM users WHERE id = ?', (user_id,))
+            user = cursor.fetchone()
+            if user:
+                return {
+                    'id': user[0],
+                    'email': user[1],
+                    'name': user[2],
+                    'hashed_password': user[3]
+                }
+            return None
+
+    def create_password_reset_token(self, user_id, token, expires_at):
+        """Create a password reset token"""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                
+                # First, mark any existing unused tokens as used
+                cursor.execute(
+                    'UPDATE password_reset_tokens SET used = TRUE WHERE user_id = ? AND used = FALSE',
+                    (user_id,)
+                )
+                
+                # Create new token
+                token_id = str(uuid.uuid4())
+                cursor.execute(
+                    'INSERT INTO password_reset_tokens (id, user_id, token, expires_at) VALUES (?, ?, ?, ?)',
+                    (token_id, user_id, token, expires_at)
+                )
+                conn.commit()
+                return True
+        except sqlite3.Error:
+            return False
+
+    def get_valid_reset_token(self, token):
+        """Get a valid reset token (not used and not expired)"""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT rt.user_id, u.email, u.name 
+                FROM password_reset_tokens rt
+                JOIN users u ON rt.user_id = u.id
+                WHERE rt.token = ? AND rt.used = FALSE AND rt.expires_at > datetime('now')
+            ''', (token,))
+            result = cursor.fetchone()
+            if result:
+                return {
+                    'user_id': result[0],
+                    'email': result[1],
+                    'name': result[2]
+                }
+            return None
+
+    def use_reset_token(self, token):
+        """Mark a reset token as used"""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                'UPDATE password_reset_tokens SET used = TRUE WHERE token = ?',
+                (token,)
+            )
+            conn.commit()
+            return cursor.rowcount > 0
+
+    def update_user_password(self, user_id, new_hashed_password):
+        """Update user password"""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    'UPDATE users SET hashed_password = ? WHERE id = ?',
+                    (new_hashed_password, user_id)
+                )
+                conn.commit()
+                return cursor.rowcount > 0
+        except sqlite3.Error:
+            return False
+
+    def cleanup_expired_tokens(self):
+        """Remove expired password reset tokens"""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                'DELETE FROM password_reset_tokens WHERE expires_at < datetime("now")'
+            )
+            conn.commit()
 
     def create_conversation(self, conversation_id, user_id):
         """Create a new conversation"""

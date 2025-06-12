@@ -2219,9 +2219,13 @@ class InsuranceAssistant {
                 display: inline-flex;
                 align-items: center;
                 background: var(--bg-color);
+                border: 1px solid rgba(0, 0, 0, 0.2);
                 border-radius: 15px;
                 user-select: none;
                 cursor: pointer;
+                margin-left: 5px;
+                padding: 2px 8px;
+                transition: all 0.2s ease;
             `;
 
             // Create speed display
@@ -2234,6 +2238,7 @@ class InsuranceAssistant {
                 font-size: 14px;
                 color: var(--text-color);
                 font-weight: 500;
+                pointer-events: none;
             `;
 
             // Add scroll event to control speed
@@ -2243,11 +2248,27 @@ class InsuranceAssistant {
             const speeds = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
             let currentSpeedIndex = 2; // Start at 1x (index 2)
 
+            // Add click event for easy speed cycling
+            speedControls.addEventListener('click', (e) => {
+                // Only trigger if not dragging
+                if (!isDragging) {
+                    currentSpeedIndex = (currentSpeedIndex + 1) % speeds.length;
+                    const newSpeed = speeds[currentSpeedIndex];
+                    this.setAudioSpeed(newSpeed);
+                    speedDisplay.textContent = newSpeed + 'x';
+                }
+            });
+
             speedControls.addEventListener('mousedown', (e) => {
                 isDragging = true;
                 startX = e.clientX;
                 startSpeed = this.audioSpeed;
                 speedControls.style.cursor = 'grabbing';
+                
+                // Prevent click event from firing when dragging
+                setTimeout(() => {
+                    isDragging = false;
+                }, 150);
             });
 
             document.addEventListener('mousemove', (e) => {
@@ -2288,10 +2309,14 @@ class InsuranceAssistant {
             // Add hover effect
             speedControls.addEventListener('mouseenter', () => {
                 speedControls.style.background = 'var(--hover-color, #f0f0f0)';
+                speedControls.style.borderColor = 'rgba(0, 0, 0, 0.4)';
+                speedControls.style.transform = 'scale(1.05)';
             });
 
             speedControls.addEventListener('mouseleave', () => {
                 speedControls.style.background = 'var(--bg-color)';
+                speedControls.style.borderColor = 'rgba(0, 0, 0, 0.2)';
+                speedControls.style.transform = 'scale(1)';
             });
 
             speedControls.appendChild(speedDisplay);

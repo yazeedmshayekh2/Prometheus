@@ -35,6 +35,10 @@ import asyncio
 import traceback
 import warnings
 
+# Load environment variables from .env file
+from dotenv import load_dotenv
+load_dotenv()
+
 # TTS imports
 try:
     from kokoro import KPipeline

@@ -332,7 +332,7 @@ class InsuranceAssistant {
         // Create message content wrapper
         const contentWrapper = document.createElement('div');
         contentWrapper.className = 'message-content';
-        
+
         // Set content with proper formatting
         contentWrapper.innerHTML = role === 'assistant' 
             ? this.markdownToHtml(content)
@@ -343,7 +343,7 @@ class InsuranceAssistant {
         
         // Add message to container
         if (this.chatContainer) {
-            this.chatContainer.appendChild(messageDiv);
+        this.chatContainer.appendChild(messageDiv);
             
             // Add action buttons only for assistant messages
             if (role === 'assistant') {
@@ -418,8 +418,8 @@ class InsuranceAssistant {
                 this.chatContainer.appendChild(messageDiv);
             }
             
-            // Scroll to bottom
-            this.chatContainer.scrollTop = this.chatContainer.scrollHeight;
+        // Scroll to bottom
+        this.chatContainer.scrollTop = this.chatContainer.scrollHeight;
         }
         
         console.log('Message added to chat');
@@ -2525,7 +2525,7 @@ document.addEventListener('DOMContentLoaded', () => {
         window.location.href = '/login.html';
         return;
     }
-    window.insuranceAssistant = new InsuranceAssistant();
+        window.insuranceAssistant = new InsuranceAssistant();
 });
 
 console.log('app.js finished loading'); 

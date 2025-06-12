@@ -10,6 +10,9 @@ A sophisticated AI-powered system for analyzing and answering questions about in
 - **Multi-Document Search**: Searches across multiple policy documents for comprehensive answers
 - **Smart Suggestions**: Generates relevant follow-up questions based on policy content
 - **Family Coverage Support**: Handles policies with multiple family members and dependents
+- **User Authentication**: Secure user authentication system with password reset functionality
+- **Persistent Storage**: SQLite database for storing user data and conversation history
+- **Email Integration**: Professional email service for password reset and notifications
 - **Ngrok Integration**: Share your local instance securely over the internet for remote access
 - **SSL Support**: Secure your API with HTTPS for secure communications
 
@@ -22,11 +25,15 @@ A sophisticated AI-powered system for analyzing and answering questions about in
 - Qdrant for vector search
 - LangChain for LLM operations
 - PyMuPDF for PDF processing
+- SQLite for persistent storage
+- Bcrypt for password hashing
+- Aiosmtplib for asynchronous email handling
 
 ### Frontend
 - Pure JavaScript for client-side operations
 - Responsive CSS design
 - Dynamic question suggestion interface
+- Persistent conversation sidebar
 
 ### AI/ML Components
 - C4AI model for natural language understanding
@@ -59,6 +66,30 @@ cp .env.example .env
 # Edit .env with your configuration
 ```
 
+### Email Configuration
+
+To enable email functionality (required for password reset):
+
+1. Set up Gmail App Password:
+   - Go to your Google Account settings
+   - Enable 2-Step Verification if not already enabled
+   - Generate an App Password for the application
+
+2. Configure email environment variables in `.env`:
+```bash
+SMTP_SERVER=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USERNAME=your.email@gmail.com
+SMTP_PASSWORD=your-app-password
+FROM_EMAIL=your.email@gmail.com
+FROM_NAME=Prometheus Insurance Assistant
+```
+
+3. Test email configuration:
+```bash
+python test_email.py
+```
+
 ## Usage
 
 1. Start the server:
@@ -71,7 +102,28 @@ python app.py
 http://localhost:5000
 ```
 
-3. Enter a National ID and ask questions about the associated policies.
+3. Create an account or log in to start using the system.
+
+### Authentication Features
+
+- **User Registration**: Create a new account with email and password
+- **Secure Login**: Password-protected access to your conversations
+- **Password Reset**: Secure password reset via email
+- **Persistent Sessions**: Stay logged in across browser sessions
+- **Conversation History**: Access your past conversations from the sidebar
+
+### Database Location
+
+The SQLite database is stored in:
+```
+data/auth.db
+```
+
+This file contains:
+- User accounts
+- Saved conversations
+- Authentication tokens
+- Session data
 
 ### Secure HTTPS with SSL
 

@@ -79,3 +79,143 @@
         font-size: 14px;
     }
 } 
+
+
+/* Conversation Action Buttons */
+.conversation-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px;
+    border-radius: 8px;
+    margin-bottom: 8px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    position: relative;
+    border: 1px solid transparent;
+}
+
+.conversation-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0; /* Allow text truncation */
+}
+
+.conversation-actions {
+    display: flex;
+    gap: 4px;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+    margin-left: 8px;
+}
+
+.conversation-item:hover .conversation-actions {
+    opacity: 1;
+}
+
+.conversation-action-btn {
+    background: none;
+    border: none;
+    font-size: 14px;
+    padding: 4px 6px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.conversation-action-btn:hover {
+    background-color: rgba(0, 0, 0, 0.1);
+    transform: scale(1.1);
+}
+
+.delete-btn:hover {
+    background-color: rgba(220, 53, 69, 0.1) !important;
+    color: #dc3545;
+}
+
+.archive-btn:hover {
+    background-color: rgba(40, 167, 69, 0.1) !important;
+    color: #28a745;
+}
+
+/* Archived conversation styling */
+.conversation-item.archived {
+    opacity: 0.7;
+    border-color: rgba(0, 0, 0, 0.1);
+    background-color: rgba(0, 0, 0, 0.05);
+}
+
+.conversation-item.archived .conversation-title {
+    font-style: italic;
+}
+
+.archived-indicator {
+    font-size: 12px;
+    margin-right: 4px;
+    opacity: 0.7;
+}
+
+/* Dark mode support for conversation actions */
+[data-bs-theme="dark"] .conversation-action-btn:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+}
+
+[data-bs-theme="dark"] .conversation-item.archived {
+    background-color: rgba(255, 255, 255, 0.05);
+    border-color: rgba(255, 255, 255, 0.1);
+}
+
+/* Mobile responsiveness */
+@media (max-width: 768px) {
+    .conversation-actions {
+        opacity: 1; /* Always show on mobile */
+    }
+    
+    .conversation-action-btn {
+        padding: 6px 8px;
+        font-size: 16px;
+    }
+}
+
+/* Toggle for showing archived conversations */
+.archive-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    margin-bottom: 12px;
+    font-size: 14px;
+    color: var(--bs-text-muted);
+}
+
+.archive-toggle input[type="checkbox"] {
+    margin: 0;
+}
+
+.archive-toggle label {
+    margin: 0;
+    cursor: pointer;
+}
+
+/* Toast notification improvements */
+.toast-notification {
+    font-family: var(--bs-font-sans-serif);
+    font-size: 14px;
+    animation: slideIn 0.3s ease-out;
+}
+
+@keyframes slideIn {
+    from {
+        transform: translateX(100%);
+        opacity: 0;
+    }
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}

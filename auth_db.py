@@ -44,11 +44,19 @@ class AuthDB:
                 CREATE TABLE IF NOT EXISTS conversations (
                     id TEXT PRIMARY KEY,
                     user_id TEXT,
+                    archived BOOLEAN DEFAULT FALSE,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (user_id) REFERENCES users(id)
                 )
             ''')
+            
+            # Add archived column if it doesn't exist (for existing databases)
+            try:
+                cursor.execute('ALTER TABLE conversations ADD COLUMN archived BOOLEAN DEFAULT FALSE')
+            except sqlite3.OperationalError:
+                # Column already exists
+                pass
             
             # Create messages table with additional state columns
             cursor.execute('''
@@ -208,26 +216,44 @@ class AuthDB:
             )
             conn.commit()
 
-    def get_user_conversations(self, user_id):
-        """Get all conversations for a user"""
+    def get_user_conversations(self, user_id, include_archived=False):
+        """Get all conversations for a user, optionally including archived ones"""
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
-            cursor.execute('''
-                SELECT c.*, GROUP_CONCAT(json_object(
-                    'role', m.role,
-                    'content', m.content
-                )) as messages
-                FROM conversations c
-                LEFT JOIN messages m ON c.id = m.conversation_id
-                WHERE c.user_id = ?
-                GROUP BY c.id
-                ORDER BY c.updated_at DESC
-            ''', (user_id,))
+            
+            # Build query based on whether to include archived conversations
+            if include_archived:
+                query = '''
+                    SELECT c.*, GROUP_CONCAT(json_object(
+                        'role', m.role,
+                        'content', m.content
+                    )) as messages
+                    FROM conversations c
+                    LEFT JOIN messages m ON c.id = m.conversation_id
+                    WHERE c.user_id = ?
+                    GROUP BY c.id
+                    ORDER BY c.archived ASC, c.updated_at DESC
+                '''
+            else:
+                query = '''
+                    SELECT c.*, GROUP_CONCAT(json_object(
+                        'role', m.role,
+                        'content', m.content
+                    )) as messages
+                    FROM conversations c
+                    LEFT JOIN messages m ON c.id = m.conversation_id
+                    WHERE c.user_id = ? AND c.archived = FALSE
+                    GROUP BY c.id
+                    ORDER BY c.updated_at DESC
+                '''
+            
+            cursor.execute(query, (user_id,))
             conversations = cursor.fetchall()
             return [{
                 'id': conv['id'],
                 'user_id': conv['user_id'],
+                'archived': bool(conv['archived']),
                 'created_at': conv['created_at'],
                 'updated_at': conv['updated_at'],
                 'messages': eval(conv['messages']) if conv['messages'] else []
@@ -317,3 +343,50 @@ class AuthDB:
                     suggested_questions,
                     is_national_id_confirmed
                 )) 
+            
+            conn.commit()
+
+    def delete_conversation(self, conversation_id, user_id):
+        """Delete a conversation and all its associated data"""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                
+                # Verify conversation belongs to user
+                cursor.execute(
+                    'SELECT id FROM conversations WHERE id = ? AND user_id = ?',
+                    (conversation_id, user_id)
+                )
+                if not cursor.fetchone():
+                    return False
+                
+                # Delete conversation state
+                cursor.execute('DELETE FROM conversation_state WHERE conversation_id = ?', (conversation_id,))
+                
+                # Delete messages
+                cursor.execute('DELETE FROM messages WHERE conversation_id = ?', (conversation_id,))
+                
+                # Delete conversation
+                cursor.execute('DELETE FROM conversations WHERE id = ?', (conversation_id,))
+                
+                conn.commit()
+                return True
+        except sqlite3.Error:
+            return False
+
+    def archive_conversation(self, conversation_id, user_id, archived=True):
+        """Archive or unarchive a conversation"""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                
+                # Verify conversation belongs to user and update archived status
+                cursor.execute(
+                    'UPDATE conversations SET archived = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?',
+                    (archived, conversation_id, user_id)
+                )
+                
+                conn.commit()
+                return cursor.rowcount > 0
+        except sqlite3.Error:
+            return False 

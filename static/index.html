@@ -22,6 +22,10 @@
     <div class="sidebar-hover-area"></div>
     <div class="sidebar">
         <button class="new-chat-btn" onclick="window.insuranceAssistant.startNewConversation()">+ New Chat</button>
+        <div class="archive-toggle">
+            <input type="checkbox" id="showArchived" onchange="window.insuranceAssistant.loadConversations(this.checked)">
+            <label for="showArchived">Show archived</label>
+        </div>
         <div class="conversation-list">
             <!-- Conversations will be populated by JavaScript -->
         </div>

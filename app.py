@@ -1926,8 +1926,12 @@ class ConversationUpdate(BaseModel):
 
 # Conversation endpoints
 @api_app.get("/conversations")
-async def get_conversations(current_user: dict = Depends(get_current_user)):
-    return auth_db.get_user_conversations(current_user["id"])
+async def get_conversations(
+    include_archived: bool = False,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get conversations for the current user"""
+    return auth_db.get_user_conversations(current_user["id"], include_archived)
 
 @api_app.get("/conversations/{conversation_id}")
 async def get_conversation(
@@ -1973,6 +1977,31 @@ async def update_conversation(
         conversation.isNationalIdConfirmed
     )
     return auth_db.get_conversation(conversation_id, current_user["id"])
+
+@api_app.delete("/conversations/{conversation_id}")
+async def delete_conversation(
+    conversation_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Delete a conversation"""
+    success = auth_db.delete_conversation(conversation_id, current_user["id"])
+    if not success:
+        raise HTTPException(status_code=404, detail="Conversation not found or access denied")
+    return {"message": "Conversation deleted successfully"}
+
+@api_app.patch("/conversations/{conversation_id}/archive")
+async def archive_conversation(
+    conversation_id: str,
+    archived: bool = True,
+    current_user: dict = Depends(get_current_user)
+):
+    """Archive or unarchive a conversation"""
+    success = auth_db.archive_conversation(conversation_id, current_user["id"], archived)
+    if not success:
+        raise HTTPException(status_code=404, detail="Conversation not found or access denied")
+    
+    action = "archived" if archived else "unarchived"
+    return {"message": f"Conversation {action} successfully"}
 
 # Mount the API routes under /api
 app.mount("/api", api_app)

@@ -315,12 +315,6 @@ class InsuranceAssistant {
     }
     
     addMessageToChat(role, content, shouldSave = true) {
-        // Reset audio speed when adding new messages
-        this.audioSpeed = 1.0;
-        
-        // Stop any currently playing audio when adding new messages
-        this.stopAudio();
-        
         if (!content) {
             console.error('No content provided for chat message');
             return;
@@ -1608,12 +1602,12 @@ class InsuranceAssistant {
         }
     }
 
-    async loadConversations() {
+    async loadConversations(includeArchived = false) {
         try {
             const token = localStorage.getItem('authToken');
             if (!token) return;
 
-            const response = await fetch('/api/conversations', {
+            const response = await fetch(`/api/conversations?include_archived=${includeArchived}`, {
                 headers: {
                     'Authorization': `Bearer ${token}`
                 }
@@ -1645,6 +1639,11 @@ class InsuranceAssistant {
                 item.classList.add('active');
             }
             
+            // Add archived class if conversation is archived
+            if (conv.archived) {
+                item.classList.add('archived');
+            }
+            
             // Generate title from conversation content
             const title = this.generateConversationTitle(conv.messages);
             
@@ -1654,6 +1653,10 @@ class InsuranceAssistant {
                 day: '2-digit',
                 month: 'short'
             });
+            
+            // Create main content container
+            const contentContainer = document.createElement('div');
+            contentContainer.className = 'conversation-content';
             
             // Create title element
             const titleSpan = document.createElement('span');
@@ -1665,11 +1668,53 @@ class InsuranceAssistant {
             dateSpan.className = 'conversation-date';
             dateSpan.textContent = formattedDate;
             
-            // Add elements to item
-            item.appendChild(titleSpan);
-            item.appendChild(dateSpan);
+            // Add archived indicator
+            if (conv.archived) {
+                const archivedIndicator = document.createElement('span');
+                archivedIndicator.className = 'archived-indicator';
+                archivedIndicator.textContent = '📥';
+                archivedIndicator.title = 'Archived';
+                contentContainer.appendChild(archivedIndicator);
+            }
             
-            item.onclick = () => this.loadConversation(conv.id);
+            // Add elements to content container
+            contentContainer.appendChild(titleSpan);
+            contentContainer.appendChild(dateSpan);
+            
+            // Create action buttons container
+            const actionsContainer = document.createElement('div');
+            actionsContainer.className = 'conversation-actions';
+            
+            // Archive button
+            const archiveBtn = document.createElement('button');
+            archiveBtn.className = 'conversation-action-btn archive-btn';
+            archiveBtn.innerHTML = conv.archived ? '📥' : '📥';
+            archiveBtn.title = conv.archived ? 'Unarchive' : 'Archive';
+            archiveBtn.onclick = (e) => {
+                e.stopPropagation();
+                this.toggleArchiveConversation(conv.id, !conv.archived);
+            };
+            
+            // Delete button
+            const deleteBtn = document.createElement('button');
+            deleteBtn.className = 'conversation-action-btn delete-btn';
+            deleteBtn.innerHTML = '🗑️';
+            deleteBtn.title = 'Delete';
+            deleteBtn.onclick = (e) => {
+                e.stopPropagation();
+                this.deleteConversation(conv.id);
+            };
+            
+            actionsContainer.appendChild(archiveBtn);
+            actionsContainer.appendChild(deleteBtn);
+            
+            // Add content and actions to item
+            item.appendChild(contentContainer);
+            item.appendChild(actionsContainer);
+            
+            // Set click handler for the main content area
+            contentContainer.onclick = () => this.loadConversation(conv.id);
+            
             conversationList.appendChild(item);
         });
     }
@@ -2046,23 +2091,51 @@ class InsuranceAssistant {
         console.log(`User ${action}d the message, active: ${!isActive}`);
     }
 
-    showToast(message) {
+    showToast(message, type = 'success') {
+        // Check if there's an existing toast
+        const existingToast = document.querySelector('.toast-notification');
+        if (existingToast) {
+            existingToast.remove();
+        }
+
         const toast = document.createElement('div');
-        toast.className = 'toast';
+        toast.className = `toast-notification ${type}`;
         toast.textContent = message;
+        
+        // Style the toast
+        Object.assign(toast.style, {
+            position: 'fixed',
+            top: '20px',
+            right: '20px',
+            padding: '12px 20px',
+            borderRadius: '5px',
+            color: 'white',
+            fontWeight: 'bold',
+            zIndex: '10000',
+            minWidth: '200px',
+            textAlign: 'center',
+            backgroundColor: type === 'error' ? '#dc3545' : '#28a745',
+            boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)',
+            transform: 'translateX(100%)',
+            transition: 'transform 0.3s ease-in-out'
+        });
+
         document.body.appendChild(toast);
 
-        // Trigger reflow to enable animation
-        toast.offsetHeight;
-
-        // Show toast
-        toast.classList.add('show');
-
-        // Remove toast after animation
+        // Animate in
         setTimeout(() => {
-            toast.classList.remove('show');
-            setTimeout(() => toast.remove(), 300);
-        }, 2000);
+            toast.style.transform = 'translateX(0)';
+        }, 10);
+
+        // Auto remove after 3 seconds
+        setTimeout(() => {
+            toast.style.transform = 'translateX(100%)';
+            setTimeout(() => {
+                if (toast.parentNode) {
+                    toast.remove();
+                }
+            }, 300);
+        }, 3000);
     }
 
     // Audio functionality
@@ -2154,7 +2227,7 @@ class InsuranceAssistant {
             // Create speed display
             const speedDisplay = document.createElement('span');
             speedDisplay.className = 'speed-display';
-            speedDisplay.textContent = `${this.audioSpeed}x`;
+            speedDisplay.textContent = '1x';
             speedDisplay.style.cssText = `
                 min-width: 45px;
                 text-align: center;
@@ -2168,7 +2241,7 @@ class InsuranceAssistant {
             let startX = 0;
             let startSpeed = 1;
             const speeds = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
-            let currentSpeedIndex = speeds.indexOf(this.audioSpeed); // Match current audio speed
+            let currentSpeedIndex = 2; // Start at 1x (index 2)
 
             speedControls.addEventListener('mousedown', (e) => {
                 isDragging = true;
@@ -2219,18 +2292,6 @@ class InsuranceAssistant {
 
             speedControls.addEventListener('mouseleave', () => {
                 speedControls.style.background = 'var(--bg-color)';
-            });
-
-            // Add click functionality to cycle through speeds
-            speedControls.addEventListener('click', (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                
-                // Cycle to next speed
-                currentSpeedIndex = (currentSpeedIndex + 1) % speeds.length;
-                const newSpeed = speeds[currentSpeedIndex];
-                this.setAudioSpeed(newSpeed);
-                speedDisplay.textContent = newSpeed + 'x';
             });
 
             speedControls.appendChild(speedDisplay);
@@ -2535,10 +2596,78 @@ class InsuranceAssistant {
             }
 
             // Default meaningful title for new conversations
-            return 'New Policy Consultation';
+            return 'New conversation';
         } catch (error) {
             console.error('Error generating title:', error);
             return 'Medical Policy Inquiry';
+        }
+    }
+
+    async deleteConversation(conversationId) {
+        // Show confirmation dialog
+        if (!confirm('Are you sure you want to delete this conversation? This action cannot be undone.')) {
+            return;
+        }
+
+        try {
+            const token = localStorage.getItem('authToken');
+            if (!token) return;
+
+            const response = await fetch(`/api/conversations/${conversationId}`, {
+                method: 'DELETE',
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            });
+
+            if (response.ok) {
+                // If the deleted conversation was currently active, start a new one
+                if (this.currentConversationId === conversationId) {
+                    await this.startNewConversation();
+                }
+                
+                // Refresh conversation list
+                await this.loadConversations();
+                this.showToast('Conversation deleted successfully');
+            } else {
+                throw new Error('Failed to delete conversation');
+            }
+        } catch (error) {
+            console.error('Error deleting conversation:', error);
+            this.showToast('Failed to delete conversation', 'error');
+        }
+    }
+
+    async toggleArchiveConversation(conversationId, archived) {
+        try {
+            const token = localStorage.getItem('authToken');
+            if (!token) return;
+
+            const response = await fetch(`/api/conversations/${conversationId}/archive?archived=${archived}`, {
+                method: 'PATCH',
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            });
+
+            if (response.ok) {
+                // If the archived conversation was currently active, start a new one
+                if (archived && this.currentConversationId === conversationId) {
+                    await this.startNewConversation();
+                }
+                
+                // Refresh conversation list
+                await this.loadConversations();
+                
+                const action = archived ? 'archived' : 'unarchived';
+                this.showToast(`Conversation ${action} successfully`);
+            } else {
+                throw new Error(`Failed to ${archived ? 'archive' : 'unarchive'} conversation`);
+            }
+        } catch (error) {
+            console.error('Error toggling archive status:', error);
+            const action = archived ? 'archive' : 'unarchive';
+            this.showToast(`Failed to ${action} conversation`, 'error');
         }
     }
 }

@@ -1019,7 +1019,6 @@ async def text_to_speech(request: TTSRequest):
         print(f"Number converted preview: {clean_text[:300]}...")
         
         # Special handling for currency amounts - convert QR/QAR to "Qatari Riyal"
-        # Handle QR/QAR with comma-separated numbers first
         def convert_qatari_currency(text):
             # Pattern for QR/QAR followed by numbers (with or without commas)
             # QAR 7,500 -> 7500 Qatari Riyal
@@ -1041,9 +1040,48 @@ async def text_to_speech(request: TTSRequest):
             
             return text
         
+        # Special handling for forward slashes in pricing and currency contexts
+        def convert_pricing_slashes(text):
+            """
+            Convert forward slashes in pricing contexts to 'per' for natural speech
+            Examples:
+            - QR 250/session -> QR 250 per session
+            - $50/hour -> $50 per hour
+            - 100/month -> 100 per month
+            """
+            # Currency followed by amount and slash with unit
+            # QR 250/session, QAR 100/visit, etc.
+            text = re.sub(r'(QA?R\s*\d+)\s*/\s*(\w+)', r'\1 per \2', text)
+            
+            # General currency patterns (USD, EUR, etc.)
+            text = re.sub(r'(\$\d+|\€\d+|£\d+)\s*/\s*(\w+)', r'\1 per \2', text)
+            
+            # Numbers followed by slash and time/unit words
+            # 250/session, 100/hour, 50/visit, etc.
+            time_units = ['session', 'hour', 'day', 'week', 'month', 'year', 'visit', 'appointment', 'consultation', 'treatment', 'service', 'item', 'unit', 'piece', 'person', 'patient', 'case']
+            for unit in time_units:
+                text = re.sub(r'(\d+)\s*/\s*' + re.escape(unit) + r'\b', r'\1 per ' + unit, text, flags=re.IGNORECASE)
+            
+            # Handle plural forms too
+            for unit in time_units:
+                plural_unit = unit + 's' if not unit.endswith('s') else unit
+                text = re.sub(r'(\d+)\s*/\s*' + re.escape(plural_unit) + r'\b', r'\1 per ' + plural_unit, text, flags=re.IGNORECASE)
+            
+            # General pattern for any number/word combinations that look like rates
+            # But be careful not to convert dates or other meaningful slashes
+            text = re.sub(r'(\d+)\s*/\s*([a-zA-Z]+)(?=\s|$|[,.!?])', r'\1 per \2', text)
+            
+            print(f"After slash conversion: '{text[:200]}...'")
+            return text
+        
         clean_text = convert_qatari_currency(clean_text)
         print(f"After currency conversion: {len(clean_text)} characters")
         print(f"Currency converted preview: {clean_text[:300]}...")
+        
+        # Apply pricing slash conversion
+        clean_text = convert_pricing_slashes(clean_text)
+        print(f"After pricing slash conversion: {len(clean_text)} characters")
+        print(f"Slash converted preview: {clean_text[:300]}...")
         
         # Special handling for email addresses to make them read more naturally
         def convert_email_addresses(text):
@@ -1183,246 +1221,387 @@ async def text_to_speech(request: TTSRequest):
             print(f"Processing long text ({len(clean_text)} chars), this may take longer...")
         elif len(clean_text) > 2000:
             print(f"Processing medium text ({len(clean_text)} chars)...")
+        else:
+            print(f"Processing text ({len(clean_text)} chars)...")
         
-        # For very long texts, break into chunks to avoid TTS stopping
-        if len(clean_text) > 1000:  # Lower threshold for chunking
-            audio_chunks = []
+        # Universal chunking system for ALL messages (small and large)
+        # This ensures better reliability and complete content reading
+        def optimize_chunk_size(text):
+            """
+            Optimize chunk size based on text characteristics
+            Returns the ideal chunk size for this specific text
+            """
+            text_length = len(text)
             
-            # Split into much smaller, safer chunks
-            # Process sentences more individually to ensure everything gets read
-            def split_text_safely(text, max_chunk_size=400):  # Reduced from 800
-                print(f"Splitting text of {len(text)} characters into smaller chunks...")
-                chunks = []
+            # Count complex elements that might cause TTS issues
+            complex_patterns = [
+                r'\b[A-Z]{2,}\b',  # Acronyms (QAR, USD, etc.)
+                r'\d+[,\d]*',      # Numbers with commas
+                r'[\w\.-]+@[\w\.-]+\.\w+',  # Email addresses
+                r'https?://\S+',   # URLs
+                r'\*\*[^*]+\*\*',  # Bold text
+                r'[()[\]{}]',      # Brackets and parentheses
+            ]
+            
+            complexity_score = 0
+            for pattern in complex_patterns:
+                complexity_score += len(re.findall(pattern, text))
+            
+            # Count sentences to understand structure
+            sentence_count = len([s for s in re.split(r'[.!?]+', text) if s.strip()])
+            avg_sentence_length = text_length / max(sentence_count, 1)
+            
+            # Base chunk size
+            base_size = 300
+            
+            # Adjust based on complexity
+            if complexity_score > 10:
+                base_size = 200  # More complex text needs smaller chunks
+            elif complexity_score > 5:
+                base_size = 250
+            
+            # Adjust based on average sentence length
+            if avg_sentence_length > 100:
+                base_size = min(base_size, 200)  # Long sentences need smaller chunks
+            elif avg_sentence_length < 30:
+                base_size = min(base_size + 50, 350)  # Short sentences can handle bigger chunks
+            
+            # Adjust based on total text length
+            if text_length < 100:
+                base_size = text_length  # Very short text stays as one chunk
+            elif text_length < 300:
+                base_size = min(base_size, 150)  # Small text needs smaller chunks for reliability
+            
+            print(f"Chunk size optimization:")
+            print(f"  Text length: {text_length} chars")
+            print(f"  Complexity score: {complexity_score}")
+            print(f"  Sentence count: {sentence_count}")
+            print(f"  Avg sentence length: {avg_sentence_length:.1f}")
+            print(f"  Optimized chunk size: {base_size}")
+            
+            return max(50, min(base_size, 400))  # Ensure reasonable bounds
+        
+        def split_text_intelligently(text, max_chunk_size=None):
+            """
+            Intelligent text splitting that works for both small and large messages
+            Ensures TTS processes all content reliably
+            """
+            if max_chunk_size is None:
+                max_chunk_size = optimize_chunk_size(text)
                 
-                # Primary split: sentences ending with punctuation, preserving list structure
-                sentences = re.split(r'(?<=[.!?])\s+', text)
+            print(f"Starting intelligent text splitting for {len(text)} characters with chunk size {max_chunk_size}...")
+            
+            if len(text) <= 50:  # Very short text
+                print(f"Very short text, keeping as single chunk")
+                return [text] if text.strip() else []
+            
+            chunks = []
+            
+            # Step 1: Split by major punctuation (sentences)
+            # This preserves natural speech flow
+            sentence_pattern = r'(?<=[.!?])\s+'
+            sentences = [s.strip() for s in re.split(sentence_pattern, text) if s.strip()]
+            
+            print(f"Found {len(sentences)} sentences to process")
+            
+            # Step 2: Process each sentence or group of sentences
+            current_chunk = ""
+            
+            for i, sentence in enumerate(sentences):
+                print(f"  Processing sentence {i+1}: {len(sentence)} chars - '{sentence[:60]}...'")
                 
-                print(f"Found {len(sentences)} sentences to process")
-                
-                # Process each sentence individually or in very small groups
-                for i, sentence in enumerate(sentences):
-                    sentence = sentence.strip()
-                    if not sentence:
-                        continue
-                    
-                    print(f"  Sentence {i+1}: {len(sentence)} chars - '{sentence[:80]}...'")
-                    
-                    # If sentence is short enough, make it its own chunk
-                    if len(sentence) <= max_chunk_size:
-                        chunks.append(sentence)
-                        print(f"    Single sentence chunk {len(chunks)}: {len(sentence)} chars")
+                # If adding this sentence would exceed max_chunk_size
+                if current_chunk and len(current_chunk + ". " + sentence) > max_chunk_size:
+                    # Save the current chunk and start a new one
+                    if current_chunk.strip():
+                        # Ensure chunk ends with proper punctuation
+                        if not current_chunk.strip()[-1] in '.!?':
+                            current_chunk += '.'
+                        chunks.append(current_chunk.strip())
+                        print(f"    Saved chunk {len(chunks)}: {len(current_chunk.strip())} chars")
+                    current_chunk = sentence
+                else:
+                    # Add sentence to current chunk
+                    if current_chunk:
+                        current_chunk += ". " + sentence
                     else:
-                        print(f"    Sentence too long ({len(sentence)} chars), sub-splitting...")
-                        # Split long sentences by commas, semicolons, or natural breaks
-                        sub_chunks = []
+                        current_chunk = sentence
+                
+                # If current sentence itself is too long, split it further
+                if len(current_chunk) > max_chunk_size:
+                    print(f"    Sentence too long ({len(current_chunk)} chars), sub-splitting...")
+                    
+                    # Try splitting by commas first
+                    if ',' in current_chunk:
+                        comma_parts = [part.strip() for part in current_chunk.split(',')]
+                        sub_chunk = ""
                         
-                        # Try splitting by commas first
-                        comma_parts = re.split(r',\s+', sentence)
-                        current_sub_chunk = ""
-                        
-                        for j, part in enumerate(comma_parts):
-                            part = part.strip()
-                            if len(current_sub_chunk + ", " + part) <= max_chunk_size and current_sub_chunk:
-                                current_sub_chunk += ", " + part
+                        for part in comma_parts:
+                            if sub_chunk and len(sub_chunk + ", " + part) > max_chunk_size:
+                                # Save current sub-chunk and start new one
+                                if not sub_chunk.strip()[-1] in '.!?':
+                                    sub_chunk += '.'
+                                chunks.append(sub_chunk.strip())
+                                print(f"      Saved sub-chunk {len(chunks)}: {len(sub_chunk.strip())} chars")
+                                sub_chunk = part
                             else:
-                                if current_sub_chunk:
-                                    sub_chunks.append(current_sub_chunk.strip())
-                                    print(f"      Sub-chunk saved: {len(current_sub_chunk.strip())} chars")
-                                current_sub_chunk = part
+                                if sub_chunk:
+                                    sub_chunk += ", " + part
+                                else:
+                                    sub_chunk = part
                         
-                        if current_sub_chunk:
-                            sub_chunks.append(current_sub_chunk.strip())
-                            print(f"      Final sub-chunk: {len(current_sub_chunk.strip())} chars")
+                        current_chunk = sub_chunk
+                    
+                    # If still too long, split by words
+                    if len(current_chunk) > max_chunk_size:
+                        words = current_chunk.split()
+                        word_chunk = ""
                         
-                        # If still too long, split by words
-                        final_sub_chunks = []
-                        for sub_chunk in sub_chunks:
-                            if len(sub_chunk) <= max_chunk_size:
-                                final_sub_chunks.append(sub_chunk)
+                        for word in words:
+                            if word_chunk and len(word_chunk + " " + word) > max_chunk_size:
+                                if not word_chunk.strip()[-1] in '.!?':
+                                    word_chunk += '.'
+                                chunks.append(word_chunk.strip())
+                                print(f"      Saved word-chunk {len(chunks)}: {len(word_chunk.strip())} chars")
+                                word_chunk = word
                             else:
-                                words = sub_chunk.split()
-                                word_chunk = ""
-                                for word in words:
-                                    if len(word_chunk + " " + word) <= max_chunk_size and word_chunk:
-                                        word_chunk += " " + word
-                                    else:
-                                        if word_chunk:
-                                            final_sub_chunks.append(word_chunk.strip())
-                                        word_chunk = word
-                                
                                 if word_chunk:
-                                    final_sub_chunks.append(word_chunk.strip())
+                                    word_chunk += " " + word
+                                else:
+                                    word_chunk = word
                         
-                        chunks.extend(final_sub_chunks)
-                
-                final_chunks = [chunk for chunk in chunks if chunk.strip()]
-                print(f"Final chunking result: {len(final_chunks)} chunks")
-                
-                # Verify no text is lost
+                        current_chunk = word_chunk
+            
+            # Add the final chunk
+            if current_chunk.strip():
+                if not current_chunk.strip()[-1] in '.!?':
+                    current_chunk += '.'
+                chunks.append(current_chunk.strip())
+                print(f"    Saved final chunk {len(chunks)}: {len(current_chunk.strip())} chars")
+            
+            # Filter out empty chunks
+            final_chunks = [chunk for chunk in chunks if chunk.strip()]
+            
+            print(f"Intelligent splitting complete: {len(final_chunks)} chunks")
+            
+            # Verify text preservation
+            if final_chunks:
                 total_chars_original = len(text.replace(' ', '').replace('\n', ''))
                 total_chars_chunks = sum(len(chunk.replace(' ', '').replace('\n', '')) for chunk in final_chunks)
                 char_ratio = total_chars_chunks / total_chars_original if total_chars_original > 0 else 0
                 print(f"Text preservation: {total_chars_chunks}/{total_chars_original} chars = {char_ratio:.2%}")
                 
-                if char_ratio < 0.95:
-                    print("WARNING: Significant text loss detected during chunking!")
-                
-                return final_chunks
+                if char_ratio < 0.90:
+                    print("WARNING: Text loss detected during chunking!")
             
-            text_chunks = split_text_safely(clean_text, max_chunk_size=400)
-            print(f"Split text into {len(text_chunks)} chunks for TTS processing")
+            return final_chunks
+        
+        def process_chunk_with_fallbacks(chunk_text, chunk_index, total_chunks):
+            """
+            Process a single chunk with multiple fallback strategies
+            Ensures maximum reliability for TTS generation
+            """
+            print(f"\nProcessing chunk {chunk_index+1}/{total_chunks}:")
+            print(f"  Length: {len(chunk_text)} characters")
+            print(f"  Content preview: '{chunk_text[:80]}...'")
             
-            successful_chunks = 0
-            total_audio_duration = 0
-            for i, chunk in enumerate(text_chunks):
-                chunk = chunk.strip()
-                if not chunk:
+            # Ensure chunk ends with proper punctuation for natural speech flow
+            if chunk_text and not chunk_text[-1] in '.!?':
+                chunk_text += '.'
+            
+            # Define fallback strategies in order of preference
+            strategies = [
+                (chunk_text, "original"),
+                (chunk_text[:250] + "." if len(chunk_text) > 250 else chunk_text, "truncated_250"),
+                (chunk_text[:200] + "." if len(chunk_text) > 200 else chunk_text, "truncated_200"),
+                (chunk_text[:150] + "." if len(chunk_text) > 150 else chunk_text, "truncated_150"),
+                (chunk_text.split('.')[0] + "." if '.' in chunk_text else chunk_text, "first_sentence"),
+                (chunk_text[:100] + "." if len(chunk_text) > 100 else chunk_text, "very_short")
+            ]
+            
+            for attempt_text, strategy in strategies:
+                if not attempt_text.strip():
                     continue
-                
-                # Ensure chunk ends with punctuation for better TTS flow
-                if not chunk[-1] in '.!?':
-                    chunk += '.'
-                
-                print(f"\nProcessing chunk {i+1}/{len(text_chunks)}:")
-                print(f"  Length: {len(chunk)} characters")
-                print(f"  Content: '{chunk[:100]}...'")
-                print(f"  Full text: {repr(chunk)}")
-                
-                # Count sentences in this chunk
-                sentence_count = len([s for s in re.split(r'[.!?]+', chunk) if s.strip()])
-                print(f"  Contains approximately {sentence_count} sentences")
-                
-                # Try processing this chunk with multiple fallback strategies
-                chunk_audio = None
-                chunk_duration = 0
-                strategies = [
-                    (chunk, "original"),
-                    (chunk[:300] + "." if len(chunk) > 300 else chunk, "truncated_300"),
-                    (chunk[:200] + "." if len(chunk) > 200 else chunk, "truncated_200"),
-                    (chunk.split('.')[0] + "." if '.' in chunk else chunk, "first_sentence"),
-                    (chunk[:100] + "." if len(chunk) > 100 else chunk, "very_short")
-                ]
-                
-                for attempt_text, strategy in strategies:
-                    try:
-                        print(f"  → Trying strategy '{strategy}' with {len(attempt_text)} chars")
-                        print(f"    Text to TTS: {repr(attempt_text[:100])}...")
-                        
-                        chunk_generator = tts_pipeline(attempt_text, voice=request.voice)
-                        
-                        for j, (gs, ps, audio) in enumerate(chunk_generator):
-                            if audio is not None and len(audio) > 0:
-                                chunk_audio = audio
-                                chunk_duration = len(audio) / 24000
-                                total_audio_duration += chunk_duration
-                                print(f"  ✓ Success! Generated {len(audio)} samples ({chunk_duration:.2f}s)")
-                                print(f"    Cumulative audio: {total_audio_duration:.2f}s")
-                                break
-                            else:
-                                print(f"  ✗ Got empty/null audio from generator")
-                        
-                        if chunk_audio is not None:
-                            break  # Success, move to next chunk
-                        else:
-                            print(f"  ✗ Strategy '{strategy}' failed: No audio generated")
-                            
-                    except Exception as e:
-                        print(f"  ✗ Strategy '{strategy}' failed with exception: {e}")
-                        continue
-                
-                if chunk_audio is not None:
-                    audio_chunks.append(chunk_audio)
-                    successful_chunks += 1
-                    print(f"  ✓ Chunk {i+1} successfully processed")
-                    print(f"    Chunk audio duration: {chunk_duration:.2f}s")
-                    print(f"    Sentences processed: ~{sentence_count}")
-                else:
-                    print(f"  ✗ WARNING: All strategies failed for chunk {i+1}")
-                    print(f"      This text will be skipped: {repr(chunk[:200])}")
-                    # Store failed chunks for analysis
-                    if not hasattr(self, 'failed_chunks'):
-                        failed_chunks = []
-                    failed_chunks.append({
-                        'index': i+1,
-                        'text': chunk,
-                        'length': len(chunk),
-                        'sentences': sentence_count
-                    })
-            
-            print(f"\nProcessing Summary:")
-            print(f"Successfully processed {successful_chunks}/{len(text_chunks)} chunks")
-            print(f"Total audio duration: {total_audio_duration:.2f} seconds")
-            estimated_sentences = sum(len([s for s in re.split(r'[.!?]+', chunk) if s.strip()]) for chunk in text_chunks)
-            print(f"Estimated total sentences in text: {estimated_sentences}")
-            
-            if not audio_chunks:
-                raise HTTPException(
-                    status_code=500,
-                    detail=f"Failed to generate any audio chunks. Processed 0/{len(text_chunks)} chunks successfully."
-                )
-            
-            # Combine all audio chunks with appropriate gaps
-            print(f"\nCombining {len(audio_chunks)} audio chunks")
-            combined_audio = audio_chunks[0]
-            
-            for i, chunk in enumerate(audio_chunks[1:], 1):
-                # Add a small gap between chunks (0.15 seconds of silence for smoother flow)
-                silence = np.zeros(int(0.15 * 24000))  # 24kHz sample rate, reduced gap
-                combined_audio = np.concatenate([combined_audio, silence, chunk])
-                print(f"Combined chunk {i+1}, total length: {len(combined_audio)/24000:.2f} seconds")
-            
-            audio_data = combined_audio
-            final_duration = len(audio_data)/24000
-            print(f"Final combined audio: {final_duration:.2f} seconds, {len(audio_data)} samples")
-            print(f"Average speech rate: {len(clean_text)/final_duration:.1f} characters per second")
-        
-        else:
-            # Generate audio using Kokoro for shorter texts
-            print(f"Processing short text: {len(clean_text)} characters")
-            
-            # Even for short texts, add safety measures
-            try:
-                generator = tts_pipeline(clean_text, voice=request.voice)
-                audio_data = None
-                
-                for i, (gs, ps, audio) in enumerate(generator):
-                    if audio is not None and len(audio) > 0:
-                        audio_data = audio
-                        print(f"Generated audio: {len(audio)} samples, {len(audio)/24000:.2f} seconds")
-                        break
-                
-                if audio_data is None:
-                    # Try with a simpler version of the text
-                    simplified_text = clean_text[:500] + "." if len(clean_text) > 500 else clean_text
-                    print(f"Retrying with simplified text: {len(simplified_text)} chars")
                     
-                    generator = tts_pipeline(simplified_text, voice=request.voice)
-                    for i, (gs, ps, audio) in enumerate(generator):
-                        if audio is not None and len(audio) > 0:
-                            audio_data = audio
-                            break
-                            
-            except Exception as e:
-                print(f"Error with short text processing: {e}")
-                # Last resort: try with just the first sentence
-                first_sentence = clean_text.split('.')[0] + "." if '.' in clean_text else clean_text[:100]
-                print(f"Last resort: trying with first sentence only: '{first_sentence}'")
-                
                 try:
-                    generator = tts_pipeline(first_sentence, voice=request.voice)
-                    for i, (gs, ps, audio) in enumerate(generator):
+                    print(f"  → Trying strategy '{strategy}' with {len(attempt_text)} chars")
+                    print(f"    Text to TTS: '{attempt_text[:60]}...'")
+                    
+                    chunk_generator = tts_pipeline(attempt_text, voice=request.voice)
+                    
+                    for j, (gs, ps, audio) in enumerate(chunk_generator):
                         if audio is not None and len(audio) > 0:
-                            audio_data = audio
-                            break
-                except Exception as e2:
-                    print(f"Last resort also failed: {e2}")
-                    audio_data = None
+                            chunk_duration = len(audio) / 24000
+                            print(f"  ✓ Success! Generated {len(audio)} samples ({chunk_duration:.2f}s)")
+                            return audio, chunk_duration
+                        else:
+                            print(f"  ✗ Got empty/null audio from generator")
+                    
+                    print(f"  ✗ Strategy '{strategy}' failed: No valid audio generated")
+                    
+                except Exception as e:
+                    print(f"  ✗ Strategy '{strategy}' failed with exception: {str(e)}")
+                    continue
+            
+            print(f"  ✗ All strategies failed for chunk {chunk_index+1}")
+            return None, 0
         
-        if audio_data is None:
+        # Apply universal intelligent chunking to ALL messages
+        text_chunks = split_text_intelligently(clean_text, max_chunk_size=300)
+        
+        if not text_chunks:
+            raise HTTPException(
+                status_code=400,
+                detail="No valid text content to process"
+            )
+        
+        print(f"\nProcessing {len(text_chunks)} chunks with universal chunking system")
+        
+        # Process all chunks
+        audio_chunks = []
+        successful_chunks = 0
+        total_audio_duration = 0
+        failed_chunks = []
+        
+        for i, chunk in enumerate(text_chunks):
+            chunk_audio, chunk_duration = process_chunk_with_fallbacks(chunk, i, len(text_chunks))
+            
+            if chunk_audio is not None:
+                audio_chunks.append(chunk_audio)
+                successful_chunks += 1
+                total_audio_duration += chunk_duration
+                print(f"  ✓ Chunk {i+1} processed successfully")
+                print(f"    Chunk duration: {chunk_duration:.2f}s")
+                print(f"    Cumulative duration: {total_audio_duration:.2f}s")
+            else:
+                failed_chunks.append({
+                    'index': i+1,
+                    'text': chunk[:100] + "..." if len(chunk) > 100 else chunk,
+                    'length': len(chunk)
+                })
+                print(f"  ✗ Chunk {i+1} failed - will be skipped")
+        
+        print(f"\nProcessing Summary:")
+        print(f"Successfully processed: {successful_chunks}/{len(text_chunks)} chunks")
+        print(f"Total audio duration: {total_audio_duration:.2f} seconds")
+        print(f"Failed chunks: {len(failed_chunks)}")
+        
+        if failed_chunks:
+            print("Failed chunks details:")
+            for failed in failed_chunks:
+                print(f"  Chunk {failed['index']}: {failed['length']} chars - '{failed['text']}'")
+        
+        # Advanced recovery system for failed chunks
+        if failed_chunks and len(failed_chunks) < len(text_chunks):
+            print(f"\n=== Advanced Recovery System ===")
+            print(f"Attempting to recover {len(failed_chunks)} failed chunks...")
+            
+            recovery_successful = 0
+            for failed_info in failed_chunks:
+                original_index = failed_info['index'] - 1  # Convert to 0-based index
+                if original_index < len(text_chunks):
+                    failed_text = text_chunks[original_index]
+                    
+                    print(f"\nRecovery attempt for chunk {failed_info['index']}:")
+                    print(f"  Original length: {len(failed_text)} chars")
+                    
+                    # Ultra-conservative recovery strategies
+                    recovery_strategies = [
+                        # Strategy 1: Ultra-short chunks (50 chars max)
+                        (failed_text[:50] + "." if len(failed_text) > 50 and failed_text[49] not in '.!?' else failed_text[:50], "ultra_short"),
+                        
+                        # Strategy 2: First few words only
+                        (" ".join(failed_text.split()[:8]) + ".", "first_words"),
+                        
+                        # Strategy 3: Remove all special characters except basic punctuation
+                        (re.sub(r'[^\w\s\.\,\!\?\:\;]', ' ', failed_text)[:80] + ".", "clean_text"),
+                        
+                        # Strategy 4: Just the first sentence if available
+                        (failed_text.split('.')[0] + "." if '.' in failed_text else failed_text[:30], "first_sentence_only"),
+                        
+                        # Strategy 5: Extract only letters and basic punctuation
+                        (re.sub(r'[^a-zA-Z\s\.\,\!\?\:]', '', failed_text)[:60] + ".", "letters_only"),
+                        
+                        # Strategy 6: Minimal fallback - just a short summary
+                        ("Content continues here.", "minimal_fallback")
+                    ]
+                    
+                    for recovery_text, strategy_name in recovery_strategies:
+                        if not recovery_text.strip():
+                            continue
+                            
+                        try:
+                            print(f"    → Recovery strategy '{strategy_name}': '{recovery_text[:40]}...'")
+                            
+                            recovery_generator = tts_pipeline(recovery_text, voice=request.voice)
+                            
+                            for j, (gs, ps, audio) in enumerate(recovery_generator):
+                                if audio is not None and len(audio) > 0:
+                                    audio_chunks.append(audio)
+                                    recovery_duration = len(audio) / 24000
+                                    total_audio_duration += recovery_duration
+                                    recovery_successful += 1
+                                    
+                                    print(f"    ✓ Recovery successful! Generated {len(audio)} samples ({recovery_duration:.2f}s)")
+                                    print(f"    Recovery text: '{recovery_text}'")
+                                    break
+                            else:
+                                print(f"    ✗ Recovery strategy '{strategy_name}' failed")
+                                continue
+                            
+                            break  # Success, move to next failed chunk
+                            
+                        except Exception as e:
+                            print(f"    ✗ Recovery strategy '{strategy_name}' exception: {str(e)}")
+                            continue
+                    else:
+                        print(f"    ✗ All recovery strategies failed for chunk {failed_info['index']}")
+            
+            if recovery_successful > 0:
+                print(f"\n=== Recovery Summary ===")
+                print(f"Successfully recovered: {recovery_successful}/{len(failed_chunks)} chunks")
+                print(f"Updated totals:")
+                print(f"  Total successful chunks: {successful_chunks + recovery_successful}/{len(text_chunks)}")
+                print(f"  Updated audio duration: {total_audio_duration:.2f} seconds")
+        
+        if not audio_chunks:
             raise HTTPException(
                 status_code=500,
-                detail="Failed to generate audio"
+                detail=f"Failed to generate any audio. All {len(text_chunks)} chunks failed processing."
             )
+        
+        # Combine audio chunks with appropriate gaps for natural flow
+        if len(audio_chunks) == 1:
+            # Single chunk - use as is
+            audio_data = audio_chunks[0]
+            print(f"Single chunk audio: {len(audio_data)/24000:.2f} seconds")
+        else:
+            # Multiple chunks - combine with silence gaps
+            print(f"Combining {len(audio_chunks)} audio chunks...")
+            audio_data = audio_chunks[0]
+            
+            for i, chunk in enumerate(audio_chunks[1:], 1):
+                # Add a small gap between chunks for natural flow
+                # Shorter gap for better continuity
+                silence_duration = 0.10  # 100ms gap
+                silence = np.zeros(int(silence_duration * 24000))
+                audio_data = np.concatenate([audio_data, silence, chunk])
+                print(f"  Combined chunk {i+1}, total length: {len(audio_data)/24000:.2f}s")
+        
+        final_duration = len(audio_data) / 24000
+        print(f"Final combined audio: {final_duration:.2f} seconds, {len(audio_data)} samples")
+        
+        # Calculate and display processing statistics
+        chars_per_second = len(clean_text) / final_duration if final_duration > 0 else 0
+        words_estimated = len(clean_text.split())
+        words_per_minute = (words_estimated / final_duration * 60) if final_duration > 0 else 0
+        
+        print(f"Speech statistics:")
+        print(f"  Characters per second: {chars_per_second:.1f}")
+        print(f"  Estimated words per minute: {words_per_minute:.1f}")
+        print(f"  Success rate: {successful_chunks}/{len(text_chunks)} chunks ({successful_chunks/len(text_chunks)*100:.1f}%)")
+        
+        # Old chunking code removed - now using universal intelligent chunking for all messages
         
         # Create a temporary file for the audio
         with tempfile.NamedTemporaryFile(delete=False, suffix='.wav') as temp_file:

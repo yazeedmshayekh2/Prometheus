@@ -1838,15 +1838,23 @@ Please give a short succinct context to situate this chunk within the overall do
             # Return original chunks with neutral scores if reranking fails
             return [(chunk, 0.5) for chunk in chunks]
 
-    def query(self, question: str, national_id: Optional[str] = None, chat_history: Optional[list] = None) -> QueryResponse:
+    def query(self, question: str, national_id: Optional[str] = None, 
+             chat_history: Optional[list] = None, use_rag_fusion: bool = False) -> QueryResponse:
         """
         Main query method using the intelligent search and answer system
+        
+        Args:
+            question: The user's question
+            national_id: User's national ID for policy lookup
+            chat_history: Previous conversation history for context
+            use_rag_fusion: Whether to use RAG Fusion for improved retrieval (default: False)
         """
         try:
             print(f"\n=== Insurance Policy Query ===")
             print(f"Question: {question}")
             print(f"National ID: {national_id}")
             print(f"Chat history: {chat_history}")
+            print(f"RAG Fusion enabled: {use_rag_fusion}")
             
             if not national_id:
                 return QueryResponse(
@@ -1855,8 +1863,12 @@ Please give a short succinct context to situate this chunk within the overall do
                     suggested_questions=["How do I find my National ID?", "What documents do I need?"]
                 )
             
-            # Use the new intelligent search and answer system with chat history
-            return self.intelligent_search_and_answer(national_id, question, chat_history=chat_history)
+            # Use the new intelligent search and answer system with chat history and RAG Fusion option
+            return self.intelligent_search_and_answer(
+                national_id, question, 
+                chat_history=chat_history, 
+                use_rag_fusion=use_rag_fusion
+            )
             
         except Exception as e:
             print(f"Error in main query method: {str(e)}")
@@ -3414,7 +3426,9 @@ General Insurance Guidelines:
         except Exception as e:
             print(f"Error loading available collections: {str(e)}")
 
-    def intelligent_search_and_answer(self, national_id: str, question: str, chat_history: Optional[list] = None) -> QueryResponse:
+    def intelligent_search_and_answer(self, national_id: str, question: str, 
+                                     chat_history: Optional[list] = None,
+                                     use_rag_fusion: bool = False) -> QueryResponse:
         """
         Intelligent search and answer system optimized for performance and quality
         """
@@ -3469,8 +3483,13 @@ General Insurance Guidelines:
             
             print(f"Searching in {len(user_collections)} collections: {user_collections}")
             
-            # Step 4: Perform intelligent multi-stage search
-            relevant_chunks = self._multi_stage_search(question, user_collections)
+            # Step 4: Perform intelligent search - choose between regular or RAG Fusion
+            if use_rag_fusion:
+                print("Using RAG Fusion search approach...")
+                relevant_chunks = self._rag_fusion_search(question, user_collections)
+            else:
+                print("Using regular multi-stage search...")
+                relevant_chunks = self._multi_stage_search(question, user_collections)
             
             if not relevant_chunks:
                 return QueryResponse(
@@ -3925,5 +3944,156 @@ ANSWER:
                 "Is pre-approval required for this service?",
                 "What are my out-of-pocket costs?"
             ]
+
+    def _generate_query_variations(self, original_query: str, num_variations: int = 3) -> List[str]:
+        """
+        Generate multiple query variations for RAG Fusion approach
+        Based on the technique from: https://luv-bansal.medium.com/advance-rag-improve-rag-performance-208ffad5bb6a
+        """
+        try:
+            prompt = f"""
+            Generate {num_variations} different variations of the following insurance policy question. 
+            Each variation should capture the same intent but use different wording, perspectives, or focus areas.
+            
+            Original question: {original_query}
+            
+            Guidelines:
+            - Maintain the same core intent
+            - Use different keywords and synonyms
+            - Consider different perspectives (cost, coverage, process, etc.)
+            - Keep variations relevant to insurance policies
+            
+            Return only the {num_variations} variations, one per line, without numbering or formatting.
+            """
+            
+            response = self.llm.generate_response(prompt)
+            variations = [line.strip() for line in response.split('\n') if line.strip()]
+            
+            # Ensure we have the requested number of variations
+            variations = variations[:num_variations]
+            
+            # Always include the original query
+            if original_query not in variations:
+                variations = [original_query] + variations[:num_variations-1]
+            
+            print(f"Generated {len(variations)} query variations:")
+            for i, var in enumerate(variations):
+                print(f"  {i+1}. {var}")
+            
+            return variations
+            
+        except Exception as e:
+            print(f"Error generating query variations: {str(e)}")
+            return [original_query]  # Fallback to original query
+
+    def _fusion_scoring(self, query_results: Dict[str, List[DocumentChunk]], 
+                       alpha: float = 0.6) -> List[DocumentChunk]:
+        """
+        Implement RAG Fusion scoring to combine results from multiple query variations
+        Uses Reciprocal Rank Fusion (RRF) algorithm
+        """
+        try:
+            # Collect all unique chunks across all queries
+            all_chunks = {}
+            chunk_rankings = {}
+            
+            # Process results from each query variation
+            for query_idx, (query, chunks) in enumerate(query_results.items()):
+                for rank, chunk in enumerate(chunks):
+                    chunk_id = chunk.chunk_id
+                    
+                    # Store chunk if not seen before
+                    if chunk_id not in all_chunks:
+                        all_chunks[chunk_id] = chunk
+                        chunk_rankings[chunk_id] = []
+                    
+                    # Record ranking for this query
+                    chunk_rankings[chunk_id].append({
+                        'query_idx': query_idx,
+                        'rank': rank + 1,  # 1-indexed ranking
+                        'original_score': chunk.relevance_score
+                    })
+            
+            # Calculate fusion scores using Reciprocal Rank Fusion
+            fusion_scores = {}
+            for chunk_id, rankings in chunk_rankings.items():
+                fusion_score = 0
+                for ranking_info in rankings:
+                    # RRF formula: 1 / (k + rank) where k=60 is typical
+                    rrf_score = 1.0 / (60 + ranking_info['rank'])
+                    # Weight by original score
+                    weighted_score = rrf_score * (1 + alpha * ranking_info['original_score'])
+                    fusion_score += weighted_score
+                
+                # Normalize by number of queries that returned this chunk
+                fusion_scores[chunk_id] = fusion_score / len(rankings)
+            
+            # Sort chunks by fusion score
+            sorted_chunks = sorted(
+                all_chunks.items(),
+                key=lambda x: fusion_scores[x[0]],
+                reverse=True
+            )
+            
+            # Update relevance scores with fusion scores
+            result_chunks = []
+            for chunk_id, chunk in sorted_chunks:
+                chunk.relevance_score = fusion_scores[chunk_id]
+                chunk.tags = chunk.tags or []
+                chunk.tags.append('rag_fusion')
+                result_chunks.append(chunk)
+            
+            print(f"RAG Fusion combined {len(result_chunks)} unique chunks from {len(query_results)} queries")
+            return result_chunks
+            
+        except Exception as e:
+            print(f"Error in fusion scoring: {str(e)}")
+            # Fallback: return chunks from first query
+            first_query_results = list(query_results.values())[0] if query_results else []
+            return first_query_results
+
+    def _rag_fusion_search(self, question: str, collections: List[str], top_k: int = 10) -> List[DocumentChunk]:
+        """
+        Implement RAG Fusion: Multi-Query Retrieval + Reranking
+        Based on: https://luv-bansal.medium.com/advance-rag-improve-rag-performance-208ffad5bb6a
+        """
+        try:
+            print(f"\n=== RAG Fusion Search ===")
+            
+            # Step 1: Generate multiple query variations
+            query_variations = self._generate_query_variations(question, num_variations=3)
+            
+            # Step 2: Execute retrieval for each query variation
+            query_results = {}
+            for query_var in query_variations:
+                print(f"Searching for: {query_var}")
+                
+                # Use existing multi-stage search for each variation
+                chunks = self._multi_stage_search(query_var, collections, top_k=top_k*2)
+                query_results[query_var] = chunks
+            
+            # Step 3: Apply fusion scoring
+            fused_chunks = self._fusion_scoring(query_results)
+            
+            # Step 4: Final reranking with cross-encoder (if available)
+            if self.reranker and len(fused_chunks) > 1:
+                print("Applying final cross-encoder reranking...")
+                reranked_results = self._rerank_results(
+                    question=question,  # Use original question for final reranking
+                    chunks=[(chunk, chunk.relevance_score) for chunk in fused_chunks],
+                    initial_k=min(50, len(fused_chunks)),
+                    final_k=top_k
+                )
+                final_chunks = [chunk for chunk, _ in reranked_results]
+            else:
+                final_chunks = fused_chunks[:top_k]
+            
+            print(f"RAG Fusion returned {len(final_chunks)} final chunks")
+            return final_chunks
+            
+        except Exception as e:
+            print(f"Error in RAG Fusion search: {str(e)}")
+            # Fallback to regular multi-stage search
+            return self._multi_stage_search(question, collections, top_k)
 
 

@@ -13,6 +13,7 @@ A sophisticated AI-powered system for analyzing and answering questions about in
 - **User Authentication**: Secure user authentication system with password reset functionality
 - **Persistent Storage**: SQLite database for storing user data and conversation history
 - **Email Integration**: Professional email service for password reset and notifications
+- **Advanced RAG Fusion**: Optional multi-query retrieval with fusion scoring for improved accuracy
 - **Ngrok Integration**: Share your local instance securely over the internet for remote access
 - **SSL Support**: Secure your API with HTTPS for secure communications
 
@@ -124,6 +125,33 @@ This file contains:
 - Saved conversations
 - Authentication tokens
 - Session data
+
+### Advanced RAG Fusion
+
+The system now supports **RAG Fusion**, an advanced retrieval technique that significantly improves search accuracy by:
+
+1. **Multi-Query Generation**: Automatically generates multiple variations of your question using different perspectives and wording
+2. **Parallel Retrieval**: Searches for each query variation simultaneously 
+3. **Fusion Scoring**: Combines results using Reciprocal Rank Fusion (RRF) algorithm to identify the most relevant content
+4. **Enhanced Reranking**: Applies final cross-encoder reranking for optimal result ordering
+
+#### When to Use RAG Fusion
+
+- **Complex Questions**: Multi-part or ambiguous insurance questions
+- **Technical Queries**: Questions requiring precise policy interpretation
+- **Coverage Analysis**: Detailed coverage comparisons and limitations
+- **Claims Processing**: Complex claims-related inquiries
+
+#### RAG Fusion vs Regular Search
+
+| Feature | Regular Search | RAG Fusion |
+|---------|---------------|------------|
+| Query Processing | Single query | 3+ query variations |
+| Search Speed | Faster | Slightly slower |
+| Accuracy | Good | Excellent |
+| Best For | Simple questions | Complex/ambiguous questions |
+
+**Note**: RAG Fusion is based on the research paper ["Retrieval-Augmented Generation for Large Language Models: A Survey"](https://luv-bansal.medium.com/advance-rag-improve-rag-performance-208ffad5bb6a) and implements state-of-the-art multi-query fusion techniques.
 
 ### Secure HTTPS with SSL
 
@@ -249,6 +277,18 @@ Content-Type: application/json
 {
     "question": "What is my dental coverage?",
     "national_id": "12345678"
+}
+```
+
+### Query with RAG Fusion (Advanced)
+```json
+POST /api/query
+Content-Type: application/json
+
+{
+    "question": "What are the limitations and exclusions for my coverage?",
+    "national_id": "12345678",
+    "use_rag_fusion": true
 }
 ```
 

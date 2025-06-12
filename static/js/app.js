@@ -315,6 +315,12 @@ class InsuranceAssistant {
     }
     
     addMessageToChat(role, content, shouldSave = true) {
+        // Reset audio speed when adding new messages
+        this.audioSpeed = 1.0;
+        
+        // Stop any currently playing audio when adding new messages
+        this.stopAudio();
+        
         if (!content) {
             console.error('No content provided for chat message');
             return;
@@ -2076,10 +2082,21 @@ class InsuranceAssistant {
 
             // Clean up text for better TTS
             let ttsText = text
-                // Replace bullet points with sequential words
-                .replace(/^[•]/m, 'First, ') // First bullet point
-                .replace(/(?!^)[•]/g, 'then, ') // Middle bullet points
-                .replace(/([•])[^•\n]*$/g, 'Finally, $1') // Last bullet point
+                // Split into lines and process bullet points sequentially
+                .split('\n')
+                .map((line, i, arr) => {
+                    if (line.trim().startsWith('*') || line.trim().startsWith('•')) {
+                        if (i === 0 || !arr[i-1].trim().startsWith('*') && !arr[i-1].trim().startsWith('•')) {
+                            return line.replace(/^[*|•]/, 'First,'); // First bullet
+                        } else if (i === arr.length-1 || !arr[i+1].trim().startsWith('*') && !arr[i+1].trim().startsWith('•')) {
+                            return line.replace(/^[*|•]/, 'Finally,'); // Last bullet
+                        } else {
+                            return line.replace(/^[*|•]/, 'Then,'); // Middle bullets
+                        }
+                    }
+                    return line;
+                })
+                .join('\n')
                 .replace(/✅/g, 'Great news! '); // Keep the success message replacement
 
             // Show different loading message based on text length
@@ -2137,7 +2154,7 @@ class InsuranceAssistant {
             // Create speed display
             const speedDisplay = document.createElement('span');
             speedDisplay.className = 'speed-display';
-            speedDisplay.textContent = '1x';
+            speedDisplay.textContent = `${this.audioSpeed}x`;
             speedDisplay.style.cssText = `
                 min-width: 45px;
                 text-align: center;
@@ -2151,7 +2168,7 @@ class InsuranceAssistant {
             let startX = 0;
             let startSpeed = 1;
             const speeds = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
-            let currentSpeedIndex = 2; // Start at 1x (index 2)
+            let currentSpeedIndex = speeds.indexOf(this.audioSpeed); // Match current audio speed
 
             speedControls.addEventListener('mousedown', (e) => {
                 isDragging = true;
@@ -2202,6 +2219,18 @@ class InsuranceAssistant {
 
             speedControls.addEventListener('mouseleave', () => {
                 speedControls.style.background = 'var(--bg-color)';
+            });
+
+            // Add click functionality to cycle through speeds
+            speedControls.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                
+                // Cycle to next speed
+                currentSpeedIndex = (currentSpeedIndex + 1) % speeds.length;
+                const newSpeed = speeds[currentSpeedIndex];
+                this.setAudioSpeed(newSpeed);
+                speedDisplay.textContent = newSpeed + 'x';
             });
 
             speedControls.appendChild(speedDisplay);

@@ -1019,6 +1019,7 @@ async def text_to_speech(request: TTSRequest):
         print(f"Number converted preview: {clean_text[:300]}...")
         
         # Special handling for currency amounts - convert QR/QAR to "Qatari Riyal"
+        # Handle QR/QAR with comma-separated numbers first
         def convert_qatari_currency(text):
             # Pattern for QR/QAR followed by numbers (with or without commas)
             # QAR 7,500 -> 7500 Qatari Riyal
@@ -1040,48 +1041,9 @@ async def text_to_speech(request: TTSRequest):
             
             return text
         
-        # Special handling for forward slashes in pricing and currency contexts
-        def convert_pricing_slashes(text):
-            """
-            Convert forward slashes in pricing contexts to 'per' for natural speech
-            Examples:
-            - QR 250/session -> QR 250 per session
-            - $50/hour -> $50 per hour
-            - 100/month -> 100 per month
-            """
-            # Currency followed by amount and slash with unit
-            # QR 250/session, QAR 100/visit, etc.
-            text = re.sub(r'(QA?R\s*\d+)\s*/\s*(\w+)', r'\1 per \2', text)
-            
-            # General currency patterns (USD, EUR, etc.)
-            text = re.sub(r'(\$\d+|\€\d+|£\d+)\s*/\s*(\w+)', r'\1 per \2', text)
-            
-            # Numbers followed by slash and time/unit words
-            # 250/session, 100/hour, 50/visit, etc.
-            time_units = ['session', 'hour', 'day', 'week', 'month', 'year', 'visit', 'appointment', 'consultation', 'treatment', 'service', 'item', 'unit', 'piece', 'person', 'patient', 'case']
-            for unit in time_units:
-                text = re.sub(r'(\d+)\s*/\s*' + re.escape(unit) + r'\b', r'\1 per ' + unit, text, flags=re.IGNORECASE)
-            
-            # Handle plural forms too
-            for unit in time_units:
-                plural_unit = unit + 's' if not unit.endswith('s') else unit
-                text = re.sub(r'(\d+)\s*/\s*' + re.escape(plural_unit) + r'\b', r'\1 per ' + plural_unit, text, flags=re.IGNORECASE)
-            
-            # General pattern for any number/word combinations that look like rates
-            # But be careful not to convert dates or other meaningful slashes
-            text = re.sub(r'(\d+)\s*/\s*([a-zA-Z]+)(?=\s|$|[,.!?])', r'\1 per \2', text)
-            
-            print(f"After slash conversion: '{text[:200]}...'")
-            return text
-        
         clean_text = convert_qatari_currency(clean_text)
         print(f"After currency conversion: {len(clean_text)} characters")
         print(f"Currency converted preview: {clean_text[:300]}...")
-        
-        # Apply pricing slash conversion
-        clean_text = convert_pricing_slashes(clean_text)
-        print(f"After pricing slash conversion: {len(clean_text)} characters")
-        print(f"Slash converted preview: {clean_text[:300]}...")
         
         # Special handling for email addresses to make them read more naturally
         def convert_email_addresses(text):

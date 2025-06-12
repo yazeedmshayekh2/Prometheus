@@ -192,21 +192,21 @@ class DocumentChunk(BaseModel):
             return default
         return self.metadata.get(key, default)
 
-class QwenModelWrapper(BaseChatModel):
-    """Wrapper for Qwen2.5-7B-Instruct-AWQ model with optimized performance"""
-    model: Any = Field(default=None, description="Qwen Model")
+class LlamaModelWrapper(BaseChatModel):
+    """Wrapper for Meta-Llama-3.1-8B-Instruct-AWQ-INT4 model with optimized performance"""
+    model: Any = Field(default=None, description="Llama Model")
     tokenizer: Any = Field(default=None, description="Tokenizer")
-    model_id: str = Field(default="Qwen/Qwen3-8B-AWQ", description="Model ID")
+    model_id: str = Field(default="hugging-quants/Meta-Llama-3.1-8B-Instruct-AWQ-INT4", description="Model ID")
     device: str = Field(default="cuda" if torch.cuda.is_available() else "cpu", description="Device to run model on")
     
     class Config:
         arbitrary_types_allowed = True
     
     def __init__(self, **kwargs):
-        """Initialize the Qwen model with AWQ quantization for optimal performance"""
+        """Initialize the Llama model with AWQ quantization for optimal performance"""
         super().__init__(**kwargs)
         if self.model is None or self.tokenizer is None:
-            print(f"Loading Qwen3-8B-AWQ model: {self.model_id}")
+            print(f"Loading Meta-Llama-3.1-8B-Instruct-AWQ-INT4 model: {self.model_id}")
             try:
                 # Verify CUDA availability - AWQ requires CUDA
                 if not torch.cuda.is_available():
@@ -226,25 +226,69 @@ class QwenModelWrapper(BaseChatModel):
                 if self.tokenizer.pad_token is None:
                     self.tokenizer.pad_token = self.tokenizer.eos_token
                 
+                # Optional: Configure AWQ quantization settings for Meta-Llama
+                quantization_config = None
+                try:
+                    from transformers import AwqConfig
+                    quantization_config = AwqConfig(
+                        bits=4,
+                        fuse_max_seq_len=512,  # Can be adjusted based on use case
+                        do_fuse=False,  # Disable fusion to avoid awq_ext issues
+                    )
+                    print("AWQ quantization config created with fusion disabled")
+                except ImportError:
+                    print("AwqConfig not available, using default quantization")
+                    quantization_config = None
+                except Exception as e:
+                    print(f"Error creating AWQ config: {e}, using default quantization")
+                    quantization_config = None
+                
                 # Load AWQ quantized model with CUDA-only device map
-                self.model = AutoModelForCausalLM.from_pretrained(
-                    self.model_id,
-                    torch_dtype="auto",
-                    device_map="cuda:0",  # Explicitly use CUDA device 0
-                    trust_remote_code=True,
-                    low_cpu_mem_usage=True
-                )
+                model_kwargs = {
+                    "torch_dtype": "auto",
+                    "device_map": "cuda:0",  # Explicitly use CUDA device 0
+                    "trust_remote_code": True,
+                    "low_cpu_mem_usage": True
+                }
+                
+                # Add quantization config if available
+                if quantization_config is not None:
+                    model_kwargs["quantization_config"] = quantization_config
+                
+                try:
+                    self.model = AutoModelForCausalLM.from_pretrained(
+                        self.model_id,
+                        **model_kwargs
+                    )
+                    print("Model loaded successfully with AWQ quantization")
+                except Exception as awq_error:
+                    print(f"AWQ loading failed: {awq_error}")
+                    print("Attempting to load without quantization config...")
+                    
+                    # Remove quantization config and try again
+                    fallback_kwargs = {
+                        "torch_dtype": torch.float16,
+                        "device_map": "cuda:0",
+                        "trust_remote_code": True,
+                        "low_cpu_mem_usage": True
+                    }
+                    
+                    self.model = AutoModelForCausalLM.from_pretrained(
+                        self.model_id,
+                        **fallback_kwargs
+                    )
+                    print("Model loaded successfully with fallback configuration (float16)")
                 
                 # Set to eval mode for inference
                 self.model.eval()
-                print(f"Qwen3-8B-AWQ model loaded successfully on CUDA")
+                print(f"Meta-Llama-3.1-8B-Instruct-AWQ-INT4 model loaded successfully on CUDA")
                 
             except Exception as e:
-                print(f"Error loading Qwen model: {str(e)}")
+                print(f"Error loading Llama model: {str(e)}")
                 raise
 
     def _generate_text(self, prompt: str, max_tokens: int = 32768, temperature: float = 0.3) -> str:
-        """Generate text with optimized Qwen2.5 performance"""
+        """Generate text with optimized Llama 3.1 performance"""
         try:
             # Create system message for insurance expertise
             messages = [
@@ -258,28 +302,26 @@ class QwenModelWrapper(BaseChatModel):
                 }
             ]
             
-            # Apply chat template
+            # Apply chat template (Llama format)
             text = self.tokenizer.apply_chat_template(
                 messages,
                 tokenize=False,
-                add_generation_prompt=True,
-                enable_thinking=False  # Disable thinking mode
+                add_generation_prompt=True
             )
             
             # Tokenize
             model_inputs = self.tokenizer([text], return_tensors="pt").to(self.model.device)
             
-            # Generate with optimized parameters for non-thinking mode
+            # Generate with optimized parameters for Llama
             with torch.no_grad():
                 generated_ids = self.model.generate(
                     **model_inputs,
                     max_new_tokens=max_tokens,
-                    temperature=0.7,  # Adjusted for non-thinking mode
-                    top_p=0.8,        # Adjusted for non-thinking mode
-                    top_k=20,         # Recommended for non-thinking mode
-                    min_p=0,          # Recommended for non-thinking mode
+                    temperature=temperature,
+                    top_p=0.9,        # Optimized for Llama
+                    top_k=50,         # Optimized for Llama
                     do_sample=True,
-                    repetition_penalty=1.1, # Can be adjusted, 1.5 recommended for quantized models if repetition is an issue
+                    repetition_penalty=1.1,
                     pad_token_id=self.tokenizer.pad_token_id,
                     eos_token_id=self.tokenizer.eos_token_id,
                     use_cache=True
@@ -295,7 +337,7 @@ class QwenModelWrapper(BaseChatModel):
             return response.strip()
             
         except Exception as e:
-            print(f"Error in Qwen text generation: {str(e)}")
+            print(f"Error in Llama text generation: {str(e)}")
             return "Error generating response. Please try again."
 
     def _generate(
@@ -305,7 +347,7 @@ class QwenModelWrapper(BaseChatModel):
         run_manager: Optional[Any] = None,
         **kwargs: Any,
     ) -> ChatResult:
-        """Generate text using Qwen2.5 model"""
+        """Generate text using Llama 3.1 model"""
         try:
             # Combine messages into a single prompt
             combined_input = " ".join([msg.content for msg in messages if hasattr(msg, 'content')])
@@ -326,14 +368,14 @@ class QwenModelWrapper(BaseChatModel):
             return ChatResult(generations=[generation])
             
         except Exception as e:
-            print(f"Error in Qwen generation: {str(e)}")
+            print(f"Error in Llama generation: {str(e)}")
             error_generation = ChatGeneration(
                 message=AIMessage(content="I apologize, but I encountered an error analyzing the policy documents. Please try asking your question again."),
                 generation_info={"finish_reason": "error"}
             )
             return ChatResult(generations=[error_generation])
 
-    def bind_tools(self, tools: List[Any]) -> "QwenModelWrapper":
+    def bind_tools(self, tools: List[Any]) -> "LlamaModelWrapper":
         """Support tool binding for LangGraph compatibility"""
         return self.__class__(
             model=self.model,
@@ -344,12 +386,12 @@ class QwenModelWrapper(BaseChatModel):
 
     @property
     def _llm_type(self) -> str:
-        return "qwen_model"
+        return "llama_model"
 
     @property
     def _identifying_params(self) -> Dict[str, Any]:
         """Get identifying parameters."""
-        return {"model_type": "qwen3"}
+        return {"model_type": "llama3.1"}
 
 
 class QueryResponse(BaseModel):
@@ -709,9 +751,9 @@ class DocumentQASystem:
         """Initialize LLM and related components with CUDA"""
         print("Initializing LLM components...")
         
-        # Initialize Qwen model with CUDA
-        self.llm = QwenModelWrapper()
-        print("Qwen model initialized on CUDA")
+        # Initialize Llama model with CUDA
+        self.llm = LlamaModelWrapper()
+        print("Llama model initialized on CUDA")
         
         # Initialize tools with actual system methods
         self.search_tools = [
@@ -1882,7 +1924,7 @@ Please give a short succinct context to situate this chunk within the overall do
         """Initialize language models and reranker"""
         try:
             # Core LLM
-            self.llm = QwenModelWrapper()
+            self.llm = LlamaModelWrapper()
             
             # Reranker components
             reranker_model = "cross-encoder/ms-marco-MiniLM-L-6-v2"
@@ -3499,7 +3541,7 @@ General Insurance Guidelines:
             
             print(f"Found {len(relevant_chunks)} relevant chunks")
             
-            # Step 5: Generate intelligent response using Qwen2.5
+            # Step 5: Generate intelligent response using Llama 3.1
             context_text = self._prepare_context_for_llm(relevant_chunks, question)
             # If chat_history is provided, prepend it to the context for multi-turn
             if chat_history:
@@ -3797,7 +3839,7 @@ General Insurance Guidelines:
 
     def _generate_intelligent_response(self, question: str, context: str) -> str:
         """
-        Generate intelligent response using Qwen2.5 with optimized prompting
+        Generate intelligent response using Llama 3.1 with optimized prompting
         """
         try:            
             prompt = f"""Based on the following insurance policy information, provide a friendly and simple answer to the question.

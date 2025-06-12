@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Comprehensive GPU Usage Tracker for Qwen2.5-14B-Instruct-AWQ Model
+Comprehensive GPU Usage Tracker for Meta-Llama-3.1-8B-Instruct-AWQ-INT4 Model
 This script provides detailed GPU monitoring and model testing capabilities.
 """
 
@@ -257,13 +257,13 @@ class GPUTracker:
                 print(f"Monitor error: {e}")
                 time.sleep(interval)
 
-    def test_qwen_model(self, model_name: str = "Qwen/Qwen2.5-14B-Instruct-AWQ"):
-        """Test loading and running the Qwen model"""
+    def test_llama_model(self, model_name: str = "hugging-quants/Meta-Llama-3.1-8B-Instruct-AWQ-INT4"):
+        """Test loading and running the Llama model"""
         if not TRANSFORMERS_AVAILABLE:
             print("❌ Transformers library not available. Install with: pip install transformers")
             return False
         
-        print(f"\n🤖 Testing Qwen Model: {model_name}")
+        print(f"\n🤖 Testing Llama Model: {model_name}")
         print("="*60)
         
         # Clear cache first
@@ -365,13 +365,13 @@ def main():
     
     tracker = GPUTracker()
     
-    print("GPU Tracker for Qwen2.5-14B-Instruct-AWQ")
+    print("GPU Tracker for Meta-Llama-3.1-8B-Instruct-AWQ-INT4")
     print("="*50)
-    print("Commands:")
-    print("  status  - Show current GPU status")
-    print("  monitor - Start continuous monitoring (Ctrl+C to stop)")
-    print("  test    - Test Qwen model loading and generation")
-    print("  quit    - Exit")
+    print("Available commands:")
+    print("  monitor - Start real-time GPU monitoring")
+    print("  test    - Test Llama model loading and generation")
+    print("  stress  - Run stress test")
+    print("  help    - Show this help message")
     print("="*50)
     
     # Show initial status
@@ -396,13 +396,22 @@ def main():
                     tracker.stop_monitoring()
                     print("\nMonitoring stopped.")
             elif cmd == 'test' or cmd == 't':
-                success = tracker.test_qwen_model()
+                success = tracker.test_llama_model()
                 if success:
                     print("✅ Model test completed successfully!")
                 else:
                     print("❌ Model test failed!")
+            elif cmd == 'stress' or cmd == 'st':
+                # Implement stress test
+                print("Stress test not implemented yet.")
+            elif cmd == 'help' or cmd == 'h':
+                print("Available commands:")
+                print("  monitor - Start real-time GPU monitoring")
+                print("  test    - Test Llama model loading and generation")
+                print("  stress  - Run stress test")
+                print("  help    - Show this help message")
             else:
-                print("Unknown command. Use: status, monitor, test, or quit")
+                print("Unknown command. Use: status, monitor, test, stress, or help")
                 
         except KeyboardInterrupt:
             print("\nExiting...")

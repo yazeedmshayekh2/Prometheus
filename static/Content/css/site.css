@@ -28,11 +28,7 @@ h3{
 strong{
     font-weight: 500!important;
 }
-br{
-    padding: 0!important;
-    margin: 0!important;
-    height: 0!important;
-}
+
 .name
 {
     text-transform:capitalize;
@@ -102,6 +98,7 @@ br{
     max-width: 70%;
     border-top-left-radius: 0;
     clear: both;
+    line-height: 1.5;
 }
 
 /* User messages */
@@ -150,20 +147,46 @@ br{
 
 /* List styling in chat messages */
 .chat ul {
-    margin-top: 10px;
+    margin: 10px 0;
+    padding-left: 0;
+    list-style: none;
 }
 
-    .chat ul li {
-        list-style: none;
-        margin-bottom: 5px;
-        padding-left: 5px;
+.chat ul li {
+    list-style: none;
+    margin-bottom: 8px;
+    padding-left: 20px;
+    position: relative;
+    line-height: 1.4;
+}
 
-    }
+.chat ul li:before {
+    content: '✓';
+    position: absolute;
+    left: 0;
+    top: 0;
+    color: #28a745;
+    font-weight: bold;
+    font-size: 10pt;
+}
 
-        .chat ul li:before {
-            content: '✔';
-            padding-right: 5px;
-        }
+/* Enhanced styling for currency amounts in lists */
+.chat ul li strong {
+    color: #0d6efd;
+    font-weight: 600;
+}
+
+/* Nested lists */
+.chat ul ul {
+    margin-top: 5px;
+    margin-bottom: 5px;
+    padding-left: 15px;
+}
+
+.chat ul ul li:before {
+    content: '•';
+    color: #6c757d;
+}
 
 .border-r {
     border-radius: 0.25rem;
@@ -1136,4 +1159,65 @@ color: #f8f9fa;
         transform: translateX(0);
         opacity: 1;
     }
+}
+
+/* Enhanced chat message typography */
+.chat {
+    font-size: 9pt;
+    background-color: rgba(242,242,242,0.6) !important;
+    padding: 20px;
+    border-radius: 1.25rem;
+    margin-bottom: 10px;
+    position: relative;
+    display: block !important;
+    min-width: 40%;
+    max-width: 70%;
+    border-top-left-radius: 0;
+    clear: both;
+    line-height: 1.5;
+}
+
+/* Enhanced strong/bold text styling */
+.chat strong {
+    font-weight: 600;
+    color: #0d6efd;
+    background-color: rgba(13, 110, 253, 0.1);
+    padding: 2px 4px;
+    border-radius: 3px;
+    font-size: 9.5pt;
+}
+
+/* Currency-specific styling */
+.chat strong:contains("QR"),
+.chat strong[title*="QR"] {
+    color: #198754;
+    background-color: rgba(25, 135, 84, 0.1);
+}
+
+/* Percentage-specific styling */
+.chat strong:contains("%") {
+    color: #fd7e14;
+    background-color: rgba(253, 126, 20, 0.1);
+}
+
+/* Better paragraph spacing */
+.chat p {
+    margin-bottom: 8px;
+    line-height: 1.4;
+}
+
+.chat p:last-child {
+    margin-bottom: 0;
+}
+
+/* Enhanced line break styling */
+.chat br {
+    line-height: 1.2;
+}
+
+/* Improved text flow */
+.chat {
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    hyphens: auto;
 }

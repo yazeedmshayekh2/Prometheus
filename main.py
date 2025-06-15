@@ -3839,10 +3839,10 @@ General Insurance Guidelines:
 
     def _generate_intelligent_response(self, question: str, context: str) -> str:
         """
-        Generate intelligent response using Llama 3.1 with optimized prompting
+        Generate intelligent response using Llama 3.1 with advanced prompting
         """
         try:            
-            prompt = f"""Based on the following insurance policy information, provide a friendly and simple answer to the question.
+            prompt = f"""Based on the following insurance policy information, answer the question.
 
 POLICY INFORMATION:
 {context}
@@ -3851,39 +3851,168 @@ Question: {question}
 
 INSTRUCTIONS:
 - Start with a direct answer to the user's question in the first sentence
+- Use simple, everyday language that anyone can understand
 - Focus on what IS covered and what the user CAN do
 - Only mention limitations or exclusions if directly asked about them
-- Use simple, everyday language that anyone can understand
-- Break down complex insurance terms into simple explanations
-- When explaining medical terms, provide clear, patient-friendly explanations
+- Be concise - avoid unnecessary repetition of the same concept
+- Do NOT repeat the main topic (like 'pre-existing conditions') in every bullet point
+- Use 'hospital stays' instead of 'inpatient' and 'clinic visits' instead of 'outpatient'
+
+STRUCTURE TEMPLATE:
+1. Direct answer (1–2 short sentences) - state YES/NO and main benefit
+2. Bullet list of key details (use • character) - each point should be unique
+3. If needed, a short explanation of any technical terms in simple language
+
+FORMATTING:
 - Format amounts as **QR X,XXX** and percentages as **XX%**
-- Group related points together without line breaks
-- Keep the tone warm and helpful throughout
+- Use bullet points with • character for lists
+- Keep related information together
+- Avoid repeating the same amount or percentage multiple times
+- Group similar information into single bullet points
 
-FORMATTING EXAMPLE:
-Good format (direct answer first, related points grouped):
-"Yes, dental treatment is covered under your policy. Here are the details:
-• Basic dental work: **QR 1,000** per visit
-• Major dental procedures: **QR 3,000** per procedure
-• Annual dental limit: **QR 10,000**"
-
-Not like this (indirect, separated points):
-"Your policy includes dental coverage.
-•
-• Basic dental: **QR 1,000**
-•
-• Major dental: **QR 3,000**"
+EXAMPLE OF GOOD FORMATTING:
+"Yes, dental treatment is covered under your policy.
+• Basic procedures like cleanings and fillings are fully covered
+• Major work like crowns requires **20%** coinsurance up to **QR 5,000** annually
+• All treatments need pre-approval except routine checkups"
 
 ANSWER:
 """
             response = self.llm._generate_text(prompt, max_tokens=600, temperature=0.2)
             
+            # Apply post-processing to remove any remaining redundancy
+            cleaned_response = self._remove_redundant_content(response.strip())
+            
             # Apply email replacement to generated response
-            return self._replace_old_email_with_new(response.strip())
+            cleaned_response = self._replace_old_email_with_new(cleaned_response)
+            
+            return cleaned_response
             
         except Exception as e:
-            print(f"Error generating intelligent response: {str(e)}")
-            return "I apologize, but I encountered an error generating a response. Please try again."
+            print(f"Error generating response: {e}")
+            return "I apologize, but I'm having trouble processing your request right now. Please try again."
+
+    def _remove_redundant_content(self, text: str) -> str:
+        """
+        Post-process response to remove redundant information and repetitive content
+        """
+        try:
+            import re
+            
+            # Split into sentences for analysis
+            sentences = re.split(r'(?<=[.!?])\s+', text)
+            unique_sentences = []
+            seen_content = set()
+            
+            for sentence in sentences:
+                # Clean sentence for comparison (remove formatting, normalize)
+                clean_sentence = re.sub(r'\*\*.*?\*\*', '', sentence.lower())
+                clean_sentence = re.sub(r'[^\w\s]', ' ', clean_sentence)
+                clean_sentence = ' '.join(clean_sentence.split())
+                
+                # Skip if we've seen very similar content
+                is_duplicate = False
+                for seen in seen_content:
+                    # Check for high similarity (>80% word overlap)
+                    words1 = set(clean_sentence.split())
+                    words2 = set(seen.split())
+                    if len(words1) > 0 and len(words2) > 0:
+                        overlap = len(words1.intersection(words2))
+                        similarity = overlap / max(len(words1), len(words2))
+                        if similarity > 0.8:
+                            is_duplicate = True
+                            break
+                
+                if not is_duplicate and clean_sentence.strip():
+                    unique_sentences.append(sentence)
+                    seen_content.add(clean_sentence)
+            
+            # Rejoin unique sentences
+            result = ' '.join(unique_sentences)
+            
+            # Remove duplicate amounts and percentages
+            result = self._deduplicate_amounts_and_percentages(result)
+            
+            # Remove repetitive phrases
+            result = self._remove_repetitive_phrases(result)
+            
+            return result.strip()
+            
+        except Exception as e:
+            print(f"Error removing redundant content: {str(e)}")
+            return text  # Return original if processing fails
+
+    def _deduplicate_amounts_and_percentages(self, text: str) -> str:
+        """
+        Remove duplicate monetary amounts and percentages from text
+        """
+        try:
+            import re
+            
+            # Find all amounts and percentages
+            amount_pattern = r'\*\*QR\s*([\d,]+)\*\*'
+            percent_pattern = r'\*\*([\d.]+)%\*\*'
+            
+            # Track seen amounts and percentages
+            seen_amounts = set()
+            seen_percentages = set()
+            
+            def replace_amount(match):
+                amount = match.group(1)
+                if amount in seen_amounts:
+                    return ""  # Remove duplicate
+                seen_amounts.add(amount)
+                return match.group(0)  # Keep original
+            
+            def replace_percentage(match):
+                percentage = match.group(1)
+                if percentage in seen_percentages:
+                    return ""  # Remove duplicate
+                seen_percentages.add(percentage)
+                return match.group(0)  # Keep original
+            
+            # Replace duplicates
+            text = re.sub(amount_pattern, replace_amount, text)
+            text = re.sub(percent_pattern, replace_percentage, text)
+            
+            # Clean up extra spaces
+            text = re.sub(r'\s+', ' ', text)
+            
+            return text
+            
+        except Exception as e:
+            print(f"Error deduplicating amounts: {str(e)}")
+            return text
+
+    def _remove_repetitive_phrases(self, text: str) -> str:
+        """
+        Remove repetitive phrases and redundant expressions
+        """
+        try:
+            import re
+            
+            # Common repetitive patterns to remove
+            repetitive_patterns = [
+                r'(\b\w+\b)\s+\1\b',  # Repeated words
+                r'(coverage|covered|includes?|benefits?)\s+(coverage|covered|includes?|benefits?)',  # Repeated coverage terms
+                r'(your policy|the policy)\s+(your policy|the policy)',  # Repeated policy references
+                r'(per visit|per procedure)\s+(per visit|per procedure)',  # Repeated per terms
+            ]
+            
+            for pattern in repetitive_patterns:
+                text = re.sub(pattern, r'\1', text, flags=re.IGNORECASE)
+            
+            # Remove redundant bullet point formatting
+            text = re.sub(r'•\s*•', '•', text)
+            
+            # Clean up multiple spaces
+            text = re.sub(r'\s+', ' ', text)
+            
+            return text
+            
+        except Exception as e:
+            print(f"Error removing repetitive phrases: {str(e)}")
+            return text
 
     def _extract_coverage_details(self, response_text: str) -> Dict[str, Any]:
         """

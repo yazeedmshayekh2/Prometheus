@@ -335,7 +335,7 @@ class InsuranceAssistant {
 
         // Set content with proper formatting
         contentWrapper.innerHTML = role === 'assistant' 
-            ? this.markdownToHtml(content)
+            ? this.basicMarkdownToHtml(content)  // Step 1: Basic markdown (bold only)
             : this.escapeHtml(content);
 
         // Add content to message div
@@ -486,6 +486,102 @@ class InsuranceAssistant {
             console.error('Error setting error message:', error);
             alert(message); // Fallback to alert if all else fails
         }
+    }
+
+    basicMarkdownToHtml(markdown) {
+        if (!markdown) return '';
+        
+        // Step 1: Escape HTML first to prevent XSS
+        let html = markdown
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+        
+        // Step 2: Process formatting on escaped text
+        html = html
+            // Bold text (handle both ** and __ syntax)
+            .replace(/(\*\*|__)(.*?)\1/g, '<strong>$2</strong>')
+            
+            // Step 3: Currency and percentage formatting
+            // Format QR amounts (with or without existing bold formatting)
+            .replace(/&lt;strong&gt;QR\s*(\d{1,3}(?:,\d{3})*(?:\.\d+)?(?:\/-)?)&lt;\/strong&gt;/g, '<strong>QR $1</strong>')
+            .replace(/QR\s*(\d{1,3}(?:,\d{3})*(?:\.\d+)?(?:\/-)?)(?!&lt;)/g, '<strong>QR $1</strong>')
+            
+            // Format percentages (with or without existing bold formatting)
+            .replace(/&lt;strong&gt;(\d+(?:\.\d+)?)%&lt;\/strong&gt;/g, '<strong>$1%</strong>')
+            .replace(/(\d+(?:\.\d+)?)%(?!&lt;)/g, '<strong>$1%</strong>')
+            
+            // Step 4: Add line breaks before bullet points to separate them from paragraphs
+            .replace(/([.!?])\s*•/g, '$1<br><br>•')  // Add double line break before bullet after sentence
+            .replace(/([^<br>])\s*•/g, '$1<br><br>•')  // Add double line break before bullet after any text
+            
+            // Step 5: Process bullet points
+            // Convert lines starting with • into list items
+            .replace(/^• (.+)$/gm, '<li>$1</li>')
+            // Also handle lines starting with * or - as bullet points
+            .replace(/^\* (.+)$/gm, '<li>$1</li>')
+            .replace(/^- (.+)$/gm, '<li>$1</li>')
+            
+            // Step 6: Convert line breaks to <br> tags
+            .replace(/\n/g, '<br>');
+        
+        // Step 7: Wrap consecutive <li> elements in <ul> tags
+        html = this.wrapListItems(html);
+            
+        return html;
+    }
+
+    wrapListItems(html) {
+        // Split by <br> to process line by line
+        let lines = html.split('<br>');
+        let result = [];
+        let inList = false;
+        
+        for (let i = 0; i < lines.length; i++) {
+            let line = lines[i].trim();
+            
+            if (line.startsWith('<li>')) {
+                if (!inList) {
+                    result.push('<ul>');
+                    inList = true;
+                }
+                result.push(line);
+            } else {
+                if (inList) {
+                    result.push('</ul>');
+                    inList = false;
+                }
+                result.push(line);
+            }
+        }
+        
+        // Close any open list
+        if (inList) {
+            result.push('</ul>');
+        }
+        
+        // Join with <br> tags, but don't add <br> inside lists
+        let finalHtml = '';
+        for (let i = 0; i < result.length; i++) {
+            finalHtml += result[i];
+            
+            // Add <br> between elements, except inside lists
+            if (i < result.length - 1) {
+                const current = result[i];
+                const next = result[i + 1];
+                
+                // Don't add <br> between list items or list tags
+                if (!current.startsWith('<li>') && !next.startsWith('<li>') && 
+                    current !== '<ul>' && current !== '</ul>' &&
+                    next !== '<ul>' && next !== '</ul>') {
+                    finalHtml += '<br>';
+                }
+            }
+        }
+        
+        return finalHtml;
     }
 
     markdownToHtml(markdown) {

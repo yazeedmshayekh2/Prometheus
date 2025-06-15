@@ -22,6 +22,13 @@ class InsuranceAssistant {
         this.expiryDate = document.getElementById('expiryDate');
         this.beneficiaryCount = document.getElementById('beneficiaryCount');
 
+        // Debug: Check if elements are found
+        console.log('Elements found:', {
+            contractorName: !!this.contractorName,
+            expiryDate: !!this.expiryDate,
+            beneficiaryCount: !!this.beneficiaryCount
+        });
+
         // Modals
         this.tobModal = document.getElementById('TOBModal');
         this.memsModal = document.getElementById('MemsModal');
@@ -34,6 +41,7 @@ class InsuranceAssistant {
         this.currentNationalId = '';
         this.isLoading = false;
         this.chatHistory = [];
+        this.familyData = null; // Store family data for later use
 
         // Add conversation history management
         this.currentConversationId = null;
@@ -196,6 +204,14 @@ class InsuranceAssistant {
                 const members = data.family_data.members;
                 const principal = members.find(m => m.national_id === nationalId) || members[0];
                 
+                // Store family data for later use
+                this.familyData = data.family_data;
+                
+                // Debug logging
+                console.log('Family data received:', data.family_data);
+                console.log('Total members from API:', data.family_data.total_members);
+                console.log('Members array length:', members.length);
+                
                 if (principal) {
                     // Set contractor name as company name
                     this.contractorName.textContent = this.capitalizeWords(principal.company_name || '-');
@@ -207,7 +223,16 @@ class InsuranceAssistant {
                     }
                     
                     this.expiryDate.textContent = this.formatDate(principal.end_date) || '-';
-                    this.beneficiaryCount.textContent = data.family_data.total_members.toString() || '-';
+                    
+                    // Fix beneficiary count - use the actual count
+                    const beneficiaryCount = data.family_data.total_members || members.length || 0;
+                    this.beneficiaryCount.textContent = beneficiaryCount.toString();
+                    console.log('Setting beneficiary count to:', beneficiaryCount);
+                    console.log('Beneficiary count element:', this.beneficiaryCount);
+                    console.log('Element exists:', !!this.beneficiaryCount);
+
+                    // Make beneficiary count clickable
+                    this.setupBeneficiaryCountClick();
 
                     // Try to get PDF info from different possible sources
                     let pdfInfo = null;
@@ -273,6 +298,24 @@ class InsuranceAssistant {
         return str.split(' ')
             .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
             .join(' ');
+    }
+
+    setupBeneficiaryCountClick() {
+        const beneficiaryElement = document.getElementById('beneficiaryCount');
+        if (beneficiaryElement && this.familyData) {
+            // Make it look clickable using CSS class
+            beneficiaryElement.classList.add('clickable');
+            
+            // Remove any existing click handlers
+            beneficiaryElement.replaceWith(beneficiaryElement.cloneNode(true));
+            const newBeneficiaryElement = document.getElementById('beneficiaryCount');
+            newBeneficiaryElement.classList.add('clickable');
+            
+            // Add click handler
+            newBeneficiaryElement.addEventListener('click', () => {
+                this.showFamilyMemberCards();
+            });
+        }
     }
 
     async handleQuestionSubmit(question) {
@@ -1436,6 +1479,78 @@ class InsuranceAssistant {
         });
     }
 
+    showFamilyMemberCards() {
+        if (!this.familyData || !this.familyData.members || this.familyData.members.length === 0) {
+            this.showToast('No family member information available', 'error');
+            return;
+        }
+
+        const modalBody = document.querySelector('.modal-body.familymem');
+        if (!modalBody) {
+            console.error('Family modal body not found');
+            return;
+        }
+
+        // Clear existing content
+        modalBody.innerHTML = '';
+
+        // Create cards container
+        const cardsContainer = document.createElement('div');
+        cardsContainer.className = 'family-cards-container';
+
+        // Sort members by relation for consistent display
+        const sortedMembers = [...this.familyData.members].sort((a, b) => {
+            const order = { 'PRINCIPAL': 1, 'SPOUSE': 2, 'CHILD': 3 };
+            return (order[a.relation] || 4) - (order[b.relation] || 4);
+        });
+
+        // Create a card for each family member
+        sortedMembers.forEach(member => {
+            const card = document.createElement('div');
+            card.className = 'family-member-card';
+            
+            // Get relation icon
+            const relationIcon = this.getRelationIcon(member.relation);
+            
+            card.innerHTML = `
+                <div class="card-header">
+                    <div class="member-icon">${relationIcon}</div>
+                    <div class="member-relation">${this.escapeHtml(member.relation || 'Member')}</div>
+                </div>
+                <div class="card-body">
+                    <div class="member-name">${this.escapeHtml(member.name || 'N/A')}</div>
+                    <div class="member-details">
+                        <div class="detail-row">
+                            <span class="detail-label">Individual ID:</span>
+                            <span class="detail-value">${this.escapeHtml(member.individual_id || member.national_id || 'N/A')}</span>
+                        </div>
+                        <div class="detail-row">
+                            <span class="detail-label">Policy End Date:</span>
+                            <span class="detail-value">${this.formatDate(member.end_date) || 'N/A'}</span>
+                        </div>
+                        ${member.national_id ? `
+                            <div class="detail-row">
+                                <span class="detail-label">QID:</span>
+                                <span class="detail-value">${this.escapeHtml(member.national_id)}</span>
+                            </div>
+                        ` : ''}
+                    </div>
+                </div>
+            `;
+            
+            cardsContainer.appendChild(card);
+        });
+
+        modalBody.appendChild(cardsContainer);
+
+        // Show the modal
+        const modal = document.getElementById('MemsModal');
+        if (modal) {
+            const bootstrapModal = new bootstrap.Modal(modal);
+            bootstrapModal.show();
+        }
+    }
+
     formatDate(dateString) {
         if (!dateString) return '-';
         try {
@@ -1865,8 +1980,18 @@ class InsuranceAssistant {
         this.isNationalIdConfirmed = false;
         this.currentNationalId = '';
         
+        // Reset family data
+        this.familyData = null;
+        
         // Reset user info
         this.clearUserInfo();
+        
+        // Reset beneficiary count styling
+        const beneficiaryElement = document.getElementById('beneficiaryCount');
+        if (beneficiaryElement) {
+            beneficiaryElement.classList.remove('clickable');
+            beneficiaryElement.replaceWith(beneficiaryElement.cloneNode(true));
+        }
         
         // Reset textarea placeholder
         if (this.textArea) {
@@ -1961,6 +2086,12 @@ class InsuranceAssistant {
                     this.currentNationalId = conversation.userInfo.nationalId || '';
                     this.isNationalIdConfirmed = conversation.isNationalIdConfirmed || false;
 
+                    // Restore family data if available
+                    if (conversation.userInfo.familyData) {
+                        this.familyData = conversation.userInfo.familyData;
+                        this.setupBeneficiaryCountClick();
+                    }
+
                     // Update PDF if available
                     if (conversation.userInfo.pdfInfo && conversation.userInfo.pdfInfo.pdf_link) {
                         const tobModal = document.getElementById('TOBModal');
@@ -2033,6 +2164,7 @@ class InsuranceAssistant {
                 individualName: document.querySelector('.name.col-md-7')?.textContent || '-',
                 beneficiaryCount: this.beneficiaryCount?.textContent || '-',
                 nationalId: this.currentNationalId || '',
+                familyData: this.familyData || null,
                 pdfInfo: null
             };
 

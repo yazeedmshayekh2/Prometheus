@@ -153,6 +153,7 @@ class DatabaseConnection:
 
                 SELECT DISTINCT
                     p.NationalID,
+                    p.IndividualID,
                     p.Name,
                     p.ContractID,
                     p.CardURL,

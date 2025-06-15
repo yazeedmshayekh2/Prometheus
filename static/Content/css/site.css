@@ -330,6 +330,185 @@ strong{
     .familymem div span {
     }
 
+/* Family Member Cards Styling */
+.family-cards-container {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 20px;
+    padding: 10px;
+}
+
+.family-member-card {
+    background: #fff;
+    border: 1px solid #e9ecef;
+    border-radius: 12px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    overflow: hidden;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.family-member-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+}
+
+.family-member-card .card-header {
+    background: linear-gradient(270deg, #000000, rgb(137 114 72));
+    color: white;
+    padding: 15px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.family-member-card .member-icon {
+    font-size: 24px;
+    width: 40px;
+    height: 40px;
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.family-member-card .member-relation {
+    font-weight: 600;
+    font-size: 14px;
+    text-transform: capitalize;
+    letter-spacing: 0.5px;
+}
+
+.family-member-card .card-body {
+    padding: 20px;
+}
+
+.family-member-card .member-name {
+    font-size: 18px;
+    font-weight: 600;
+    color: #2c3e50;
+    margin-bottom: 15px;
+    text-transform: capitalize;
+}
+
+.family-member-card .member-details {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.family-member-card .detail-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 0;
+    border-bottom: 1px solid #f8f9fa;
+}
+
+.family-member-card .detail-row:last-child {
+    border-bottom: none;
+}
+
+.family-member-card .detail-label {
+    font-size: 12px;
+    font-weight: 500;
+    color: #6c757d;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.family-member-card .detail-value {
+    font-size: 14px;
+    font-weight: 600;
+    color: #495057;
+    text-align: right;
+}
+
+/* Responsive adjustments for family cards */
+@media (max-width: 768px) {
+    .family-cards-container {
+        grid-template-columns: 1fr;
+        gap: 15px;
+        padding: 5px;
+    }
+    
+    .family-member-card .card-header {
+        padding: 12px;
+    }
+    
+    .family-member-card .card-body {
+        padding: 15px;
+    }
+    
+    .family-member-card .member-name {
+        font-size: 16px;
+    }
+    
+    .family-member-card .detail-row {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 4px;
+    }
+    
+    .family-member-card .detail-value {
+        text-align: left;
+        font-size: 13px;
+    }
+}
+
+/* Enhanced modal styling for family members */
+#MemsModal .modal-dialog {
+    max-width: 90%;
+    margin: 1.75rem auto;
+}
+
+#MemsModal .modal-content {
+    border-radius: 15px;
+    border: none;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+}
+
+#MemsModal .modal-header {
+    background: black !important;
+    color: white;
+    border-radius: 15px 15px 0 0;
+    padding: 20px;
+}
+
+#MemsModal .modal-title {
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+#MemsModal .btn-close {
+    filter: brightness(0) invert(1);
+    opacity: 0.8;
+}
+
+#MemsModal .btn-close:hover {
+    opacity: 1;
+}
+
+#MemsModal .modal-body {
+    padding: 25px;
+    max-height: 70vh;
+    overflow-y: auto;
+}
+
+/* Clickable beneficiary count styling */
+#beneficiaryCount.clickable {
+    cursor: pointer !important;
+    color: #007bff !important;
+    transition: color 0.2s ease;
+}
+
+#beneficiaryCount.clickable:hover {
+    color: #0056b3 !important;
+    text-decoration: underline !important;
+}
+
 @media (max-width: 768px) {
     .border-r {
         border-radius: 0.25rem;

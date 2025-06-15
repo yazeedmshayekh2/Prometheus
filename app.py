@@ -583,6 +583,7 @@ async def get_suggestions(request: SuggestionsRequest):
                 for _, family_member_row in family_df.iterrows():
                     family_member = {
                         "name": family_member_row.get('Name', ''),
+                        "individual_id": family_member_row.get('IndividualID', ''),
                         "national_id": family_member_row.get('NationalID', ''),
                         "relation": 'SPOUSE' if family_member_row.get('RelationOrder', 3) == 1 else ('CHILD' if family_member_row.get('RelationOrder', 3) == 2 else 'PRINCIPAL'),  # Derive relation from RelationOrder
                         "date_of_birth": str(family_member_row.get('DateOfBirth', '')) if family_member_row.get('DateOfBirth') else '',  # Convert timestamp to string

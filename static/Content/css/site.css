@@ -353,7 +353,7 @@ strong{
 }
 
 .family-member-card .card-header {
-    background: linear-gradient(270deg, #000000, rgb(137 114 72));
+    background: linear-gradient(270deg, #000000, rgba(185,159,112,1));
     color: white;
     padding: 15px;
     display: flex;

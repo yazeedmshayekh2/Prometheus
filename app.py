@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException, Request, status, Depends
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import Response, StreamingResponse, RedirectResponse, JSONResponse
+from fastapi.responses import Response, StreamingResponse, RedirectResponse, JSONResponse, FileResponse
 from pydantic import BaseModel
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -20,7 +20,9 @@ from swagger_docs import (
     QueryRequest, PDFRequest, SuggestionsRequest, FamilyTestRequest,
     QueryResponse, ErrorResponse, Source, PDFInfo
 )
-from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+# Import database module for FAQ functionality
+from database import get_faq_answer, search_similar_faq
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm, HTTPBearer, HTTPAuthorizationCredentials
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from datetime import datetime, timedelta
@@ -272,6 +274,89 @@ async def query_endpoint(request: QueryRequest):
         print(f"   Sanitized to: {user_question_to_process}")
         
     try:
+        # Step 1: Check FAQ database for exact match first
+        print(f"Checking FAQ database for question: {user_question_to_process[:50]}...")
+        faq_answer = get_faq_answer(user_question_to_process)
+        
+        if faq_answer:
+            print(f"Found exact FAQ match, returning FAQ answer")
+            response_data = {
+                "answer": faq_answer,
+                "sources": [{"content": "FAQ Database", "source": "FAQ", "score": 1.0}],
+                "question_type": "faq",
+                "confidence": 1.0,
+                "explanation": "Answer retrieved from FAQ database",
+                "pdf_info": None,
+                "is_faq": True  # Flag to indicate this is from FAQ
+            }
+            
+            # Add content warning if one was generated
+            if content_warning_for_response:
+                response_data["content_warning"] = content_warning_for_response
+            
+            # Still try to get PDF info if national_id is provided
+            if request.national_id:
+                try:
+                    policy_details = qa_system.lookup_policy_details(request.national_id)
+                    if policy_details and "primary_member" in policy_details:
+                        member = policy_details["primary_member"]
+                        if member.get("policies"):
+                            for policy in member["policies"]:
+                                if policy.get('pdf_link'):
+                                    response_data["pdf_info"] = {
+                                        "pdf_link": policy['pdf_link'],
+                                        "company_name": policy.get('company_name', 'Unknown'),
+                                        "policy_number": policy.get('policy_number', 'Unknown')
+                                    }
+                                    break
+                except Exception as e:
+                    print(f"Error getting PDF info for FAQ response: {str(e)}")
+            
+            return response_data
+        
+        # Step 2: Check for similar FAQ questions if no exact match
+        print(f"No exact FAQ match found, checking for similar questions...")
+        similar_faq_answer = search_similar_faq(user_question_to_process)
+        
+        if similar_faq_answer:
+            print(f"Found similar FAQ match, returning similar FAQ answer")
+            response_data = {
+                "answer": similar_faq_answer,
+                "sources": [{"content": "FAQ Database (Similar)", "source": "FAQ", "score": 0.8}],
+                "question_type": "faq_similar",
+                "confidence": 0.8,
+                "explanation": "Answer retrieved from similar question in FAQ database",
+                "pdf_info": None,
+                "is_faq": True  # Flag to indicate this is from FAQ
+            }
+            
+            # Add content warning if one was generated
+            if content_warning_for_response:
+                response_data["content_warning"] = content_warning_for_response
+            
+            # Still try to get PDF info if national_id is provided
+            if request.national_id:
+                try:
+                    policy_details = qa_system.lookup_policy_details(request.national_id)
+                    if policy_details and "primary_member" in policy_details:
+                        member = policy_details["primary_member"]
+                        if member.get("policies"):
+                            for policy in member["policies"]:
+                                if policy.get('pdf_link'):
+                                    response_data["pdf_info"] = {
+                                        "pdf_link": policy['pdf_link'],
+                                        "company_name": policy.get('company_name', 'Unknown'),
+                                        "policy_number": policy.get('policy_number', 'Unknown')
+                                    }
+                                    break
+                except Exception as e:
+                    print(f"Error getting PDF info for similar FAQ response: {str(e)}")
+            
+            return response_data
+        
+        # Step 3: No FAQ match found, proceed with normal QA system processing
+        print(f"No FAQ matches found, proceeding with normal QA system processing...")
+        
         # Process the question (original or sanitized)
         processed_question = question_processor.preprocess_question(user_question_to_process)
         

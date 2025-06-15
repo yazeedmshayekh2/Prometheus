@@ -22,13 +22,6 @@ class InsuranceAssistant {
         this.expiryDate = document.getElementById('expiryDate');
         this.beneficiaryCount = document.getElementById('beneficiaryCount');
 
-        // Debug: Check if elements are found
-        console.log('Elements found:', {
-            contractorName: !!this.contractorName,
-            expiryDate: !!this.expiryDate,
-            beneficiaryCount: !!this.beneficiaryCount
-        });
-
         // Modals
         this.tobModal = document.getElementById('TOBModal');
         this.memsModal = document.getElementById('MemsModal');
@@ -228,8 +221,6 @@ class InsuranceAssistant {
                     const beneficiaryCount = data.family_data.total_members || members.length || 0;
                     this.beneficiaryCount.textContent = beneficiaryCount.toString();
                     console.log('Setting beneficiary count to:', beneficiaryCount);
-                    console.log('Beneficiary count element:', this.beneficiaryCount);
-                    console.log('Element exists:', !!this.beneficiaryCount);
 
                     // Make beneficiary count clickable
                     this.setupBeneficiaryCountClick();
@@ -1040,11 +1031,13 @@ class InsuranceAssistant {
                     } catch {
                         // If not JSON, parse the text response
                         const nameMatch = answer.match(/name(?:\s+is)?:\s*([^\n,]+)/i);
+                        const companyMatch = answer.match(/company(?:\s+name)?:\s*([^\n,]+)/i);
                         const expiryMatch = answer.match(/expiry(?:\s+date)?:\s*([^\n,]+)/i);
                         const familyMatch = answer.match(/family members?:\s*(\d+)/i);
                         
                         info = {
                             name: nameMatch ? nameMatch[1].trim() : null,
+                            company_name: companyMatch ? companyMatch[1].trim() : null,
                             expiry_date: expiryMatch ? expiryMatch[1].trim() : null,
                             family_count: familyMatch ? familyMatch[1].trim() : null
                         };
@@ -1054,9 +1047,21 @@ class InsuranceAssistant {
                 }
 
                 // Update the display fields
-                this.contractorName.textContent = info.name || info.contractor_name || info.username || '-';
+                // Set contractor name as company name
+                this.contractorName.textContent = this.capitalizeWords(info.company_name || '-');
+                
+                // Set individual name
+                const individualNameElement = document.querySelector('.name.col-md-7');
+                if (individualNameElement) {
+                    individualNameElement.textContent = this.capitalizeWords(info.name || '-');
+                }
+                
                 this.expiryDate.textContent = info.expiry_date || info.policy_expiry || '-';
-                this.beneficiaryCount.textContent = info.family_count || info.beneficiary_count || info.members_count || '-';
+                
+                // Only update beneficiary count if we don't have family data already set
+                if (!this.familyData) {
+                    this.beneficiaryCount.textContent = info.family_count || info.beneficiary_count || info.members_count || '-';
+                }
 
             } catch (e) {
                 console.error('Error parsing user info:', e);
@@ -1069,8 +1074,15 @@ class InsuranceAssistant {
 
     clearUserInfo() {
         this.contractorName.textContent = '-';
+        const individualNameElement = document.querySelector('.name.col-md-7');
+        if (individualNameElement) {
+            individualNameElement.textContent = '-';
+        }
         this.expiryDate.textContent = '-';
-        this.beneficiaryCount.textContent = '-';
+        // Only clear beneficiary count if we don't have family data
+        if (!this.familyData) {
+            this.beneficiaryCount.textContent = '-';
+        }
     }
 
     createResponseStructure() {
@@ -1306,7 +1318,11 @@ class InsuranceAssistant {
                 }
                 
                 this.expiryDate.textContent = info.expiry_date || info.policy_expiry || '-';
-                this.beneficiaryCount.textContent = info.family_count || info.beneficiary_count || info.members_count || '-';
+                
+                // Only update beneficiary count if we don't have family data already set
+                if (!this.familyData) {
+                    this.beneficiaryCount.textContent = info.family_count || info.beneficiary_count || info.members_count || '-';
+                }
 
             } catch (e) {
                 console.error('Error parsing user info:', e);
@@ -1324,7 +1340,10 @@ class InsuranceAssistant {
             individualNameElement.textContent = '-';
         }
         this.expiryDate.textContent = '-';
-        this.beneficiaryCount.textContent = '-';
+        // Only clear beneficiary count if we don't have family data
+        if (!this.familyData) {
+            this.beneficiaryCount.textContent = '-';
+        }
     }
 
     createResponseStructure() {
@@ -2089,6 +2108,12 @@ class InsuranceAssistant {
                     // Restore family data if available
                     if (conversation.userInfo.familyData) {
                         this.familyData = conversation.userInfo.familyData;
+                        // Update beneficiary count with actual family data count
+                        if (this.beneficiaryCount && this.familyData.total_members) {
+                            this.beneficiaryCount.textContent = this.familyData.total_members.toString();
+                        } else if (this.beneficiaryCount && this.familyData.members) {
+                            this.beneficiaryCount.textContent = this.familyData.members.length.toString();
+                        }
                         this.setupBeneficiaryCountClick();
                     }
 

@@ -255,6 +255,31 @@ class QueryResponse(BaseModel):
     explanation: Optional[str] = None
     pdf_info: Optional[PDFInfo] = None
     content_warning: Optional[str] = None
+    is_faq: Optional[bool] = False
+
+    class Config:
+        schema_extra = {
+            "example": {
+                "answer": "Your insurance policy covers medical expenses up to QR 50,000 annually.",
+                "sources": [
+                    {
+                        "content": "Medical coverage includes hospital stays, doctor visits, and emergency care.",
+                        "source": "Policy Document XYZ123",
+                        "score": 0.95
+                    }
+                ],
+                "question_type": "coverage",
+                "confidence": 0.92,
+                "explanation": "This information was found in your policy document section 3.2",
+                "pdf_info": {
+                    "pdf_link": "https://example.com/policy.pdf",
+                    "company_name": "ABC Insurance",
+                    "policy_number": "POL123456"
+                },
+                "content_warning": None,
+                "is_faq": False
+            }
+        }
 
 class Token(BaseModel):
     """

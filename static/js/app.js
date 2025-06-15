@@ -488,78 +488,114 @@ class InsuranceAssistant {
         }
     }
 
+    cleanQuotedText(text) {
+        if (typeof text === 'string') {
+            // Remove leading and trailing quotes
+            return text.replace(/^["']|["']$/g, '');
+        }
+        return text;
+    }
+    
+
     basicMarkdownToHtml(markdown) {
         if (!markdown) return '';
-        
-        // Step 1: Escape HTML first to prevent XSS
+    
+        // Step 1: Escape HTML
         let html = markdown
             .replace(/&/g, '&amp;')
             .replace(/</g, '&lt;')
             .replace(/>/g, '&gt;')
             .replace(/"/g, '&quot;')
             .replace(/'/g, '&#39;');
-        
-        // Step 2: Process formatting on escaped text
+    
+        // Step 2: Bold formatting
+        html = html.replace(/(\*\*|__)(.*?)\1/g, '<strong>$2</strong>');
+    
+        // Step 3: Currency and percentage formatting
         html = html
-            // Bold text (handle both ** and __ syntax)
-            .replace(/(\*\*|__)(.*?)\1/g, '<strong>$2</strong>')
-            
-            // Step 3: Currency and percentage formatting
-            // Format QR amounts (with or without existing bold formatting)
-            .replace(/&lt;strong&gt;QR\s*(\d{1,3}(?:,\d{3})*(?:\.\d+)?(?:\/-)?)&lt;\/strong&gt;/g, '<strong>QR $1</strong>')
-            .replace(/QR\s*(\d{1,3}(?:,\d{3})*(?:\.\d+)?(?:\/-)?)(?!&lt;)/g, '<strong>QR $1</strong>')
-            
-            // Format percentages (with or without existing bold formatting)
-            .replace(/&lt;strong&gt;(\d+(?:\.\d+)?)%&lt;\/strong&gt;/g, '<strong>$1%</strong>')
-            .replace(/(\d+(?:\.\d+)?)%(?!&lt;)/g, '<strong>$1%</strong>')
-            
-            // Step 4: Add line breaks before bullet points to separate them from paragraphs
-            .replace(/([.!?])\s*•/g, '$1<br><br>•')  // Add double line break before bullet after sentence
-            .replace(/([^<br>])\s*•/g, '$1<br><br>•')  // Add double line break before bullet after any text
-            
-            // Step 5: Process bullet points
-            // Convert lines starting with • into list items
-            .replace(/^• (.+)$/gm, '<li>$1</li>')
-            // Also handle lines starting with * or - as bullet points
-            .replace(/^\* (.+)$/gm, '<li>$1</li>')
-            .replace(/^- (.+)$/gm, '<li>$1</li>')
-            
-            // Step 6: Convert line breaks to <br> tags
-            .replace(/\n/g, '<br>');
+            .replace(/QR\s*(\d{1,3}(?:,\d{3})*(?:\.\d+)?(?:\/-)?)/g, '<strong>QR $1</strong>')
+            .replace(/(\d+(?:\.\d+)?)%/g, '<strong>$1%</strong>');
+    
+        // Step 4: Numbered lists inside sentences (e.g., "Sentence. 1. Item")
+        // Replace any sentence-ending punctuation followed by numbered items
+        html = html.replace(/([ :.!?])\s*(\d+\.)\s*/g, '$1<br><li class="numbered">');
         
-        // Step 7: Wrap consecutive <li> elements in <ul> tags
+        // Step 5: Bullet points inside sentences (e.g., "Sentence. • Item")
+        // Replace any sentence-ending punctuation followed by •
+        html = html.replace(/([ :.!?])\s*[•|*|✓]\s*/g, '$1<br><li>');
+
+        // Step 6: Regular numbered lists at the start of lines
+        html = html
+            .replace(/^(\d+\.)\s+(.+)$/gm, '<li class="numbered">$2.</li>');
+
+        // Step 7: Regular bullet points at the start of lines
+        html = html
+            .replace(/^•\s+(.+)$/gm, '<li>$1.</li>')
+            .replace(/^\*\s+(.+)$/gm, '<li>$1.</li>')
+            .replace(/^-\s+(.+)$/gm, '<li>$1.</li>');
+
+        // Step 8: Wrap <li> elements in <ul>
         html = this.wrapListItems(html);
-            
+
+        // Step 9: Line breaks
+        html = html.replace(/\n/g, '<br>');
+
         return html;
     }
+    
 
     wrapListItems(html) {
         // Split by <br> to process line by line
         let lines = html.split('<br>');
         let result = [];
         let inList = false;
+        let inNumberedList = false;
         
         for (let i = 0; i < lines.length; i++) {
             let line = lines[i].trim();
             
-            if (line.startsWith('<li>')) {
+            if (line.startsWith('<li class="numbered">')) {
+                // Handle numbered lists
+                if (!inNumberedList) {
+                    if (inList) {
+                        result.push('</ul>');
+                        inList = false;
+                    }
+                    result.push('<ol>');
+                    inNumberedList = true;
+                }
+                result.push(line);
+            } else if (line.startsWith('<li>')) {
+                // Handle regular bullet lists
                 if (!inList) {
+                    if (inNumberedList) {
+                        result.push('</ol>');
+                        inNumberedList = false;
+                    }
                     result.push('<ul>');
                     inList = true;
                 }
                 result.push(line);
             } else {
+                // Close any open lists
                 if (inList) {
                     result.push('</ul>');
                     inList = false;
+                }
+                if (inNumberedList) {
+                    result.push('</ol>');
+                    inNumberedList = false;
                 }
                 result.push(line);
             }
         }
         
-        // Close any open list
+        // Close any open lists
         if (inList) {
             result.push('</ul>');
+        }
+        if (inNumberedList) {
+            result.push('</ol>');
         }
         
         // Join with <br> tags, but don't add <br> inside lists
@@ -574,8 +610,11 @@ class InsuranceAssistant {
                 
                 // Don't add <br> between list items or list tags
                 if (!current.startsWith('<li>') && !next.startsWith('<li>') && 
+                    !current.startsWith('<li class="numbered">') && !next.startsWith('<li class="numbered">') &&
                     current !== '<ul>' && current !== '</ul>' &&
-                    next !== '<ul>' && next !== '</ul>') {
+                    current !== '<ol>' && current !== '</ol>' &&
+                    next !== '<ul>' && next !== '</ul>' &&
+                    next !== '<ol>' && next !== '</ol>') {
                     finalHtml += '<br>';
                 }
             }
@@ -751,6 +790,8 @@ class InsuranceAssistant {
             });
 
             const responseData = await response.json();
+
+            console.log('Raw data:', responseData); // Check if quotes are here
 
             if (!response.ok) {
                 // Handle specific content filtering errors from the API
@@ -2249,24 +2290,57 @@ class InsuranceAssistant {
             button.innerHTML = '⏳'; // Loading indicator
             button.disabled = true;
 
+
             // Clean up text for better TTS
+            // Add newlines before single bullet symbols (*, •, ✓) that are not followed by another one
+            text = text.replace(/(\s)([*•✓])(?![*•✓])/g, '\n$2');
+            // Add newlines before numbered lists
+            text = text.replace(/(\s)(\d+\.)(?!\d)/g, '\n$2');
+
             let ttsText = text
-                // Split into lines and process bullet points sequentially
-                .split('\n')
-                .map((line, i, arr) => {
-                    if (line.trim().startsWith('*') || line.trim().startsWith('•')) {
-                        if (i === 0 || !arr[i-1].trim().startsWith('*') && !arr[i-1].trim().startsWith('•')) {
-                            return line.replace(/^[*|•]/, 'First,'); // First bullet
-                        } else if (i === arr.length-1 || !arr[i+1].trim().startsWith('*') && !arr[i+1].trim().startsWith('•')) {
-                            return line.replace(/^[*|•]/, 'Finally,'); // Last bullet
-                        } else {
-                            return line.replace(/^[*|•]/, 'Then,'); // Middle bullets
-                        }
-                    }
-                    return line;
-                })
-                .join('\n')
-                .replace(/✅/g, 'Great news! '); // Keep the success message replacement
+            .split('\n')
+            .map((line, i, arr) => {
+                let trimmed = line.trim();
+                const isSingleBullet = /^([*•✓])(?![*•✓])/.test(trimmed);
+                const isNumberedItem = /^(\d+\.)(?!\d)/.test(trimmed);
+
+                if (isSingleBullet) {
+                const prevIsBullet = i > 0 && /^([*•✓])(?![*•✓])/.test(arr[i - 1].trim());
+                const nextIsBullet = i < arr.length - 1 && /^([*•✓])(?![*•✓])/.test(arr[i + 1].trim());
+
+                if (!prevIsBullet) {
+                    return line.replace(/^\s*([*•✓])(?![*•✓])\s*/, 'First, ');
+                } else if (!nextIsBullet) {
+                    return line.replace(/^\s*([*•✓])(?![*•✓])\s*/, 'Finally, ');
+                } else {
+                    return line.replace(/^\s*([*•✓])(?![*•✓])\s*/, 'Then, ');
+                }
+                }
+                
+                if (isNumberedItem) {
+                const prevIsNumbered = i > 0 && /^(\d+\.)(?!\d)/.test(arr[i - 1].trim());
+                const nextIsNumbered = i < arr.length - 1 && /^(\d+\.)(?!\d)/.test(arr[i + 1].trim());
+                
+                // Extract the number and convert to ordinal words
+                const numberMatch = trimmed.match(/^(\d+)\./);
+                if (numberMatch) {
+                    const num = parseInt(numberMatch[1]);
+                    const ordinals = ['First', 'Second', 'Third', 'Fourth', 'Fifth', 'Sixth', 'Seventh', 'Eighth', 'Ninth', 'Tenth'];
+                    const ordinal = ordinals[num - 1] || `Number ${num}`;
+                    
+                    return line.replace(/^\s*(\d+\.)(?!\d)\s*/, `${ordinal}, `);
+                }
+                }
+                
+                return line;
+            })
+            .join(' ')
+            .replace(/✅/g, 'Great news! ');
+
+            console.log(ttsText);
+
+
+
 
             // Show different loading message based on text length
             const textLength = ttsText.length;
@@ -2518,7 +2592,7 @@ class InsuranceAssistant {
                     return; // Skip this message
                 }
                 
-                // Process the content with the same formatting as chat display
+                // Process the content with the new formatting approach
                 let cleanContent = this.formatContentForPDF(msg.content);
                 
                 // Add the message to content with proper spacing
@@ -2583,19 +2657,24 @@ class InsuranceAssistant {
         }
     }
 
-    // New helper function to format content for PDF
+    // Updated helper function to format content for PDF with new processing
     formatContentForPDF(content) {
         if (!content) return '';
         
-        // First, clean HTML tags but preserve the structure
+        // First, process the content similar to the new basicMarkdownToHtml approach
         let cleanContent = content;
         
-        // Convert HTML formatting to plain text equivalents
+        // Step 1: Handle HTML entities and tags
         cleanContent = cleanContent
-            // Convert strong tags to uppercase for emphasis
+            // Convert strong tags to plain text (remove HTML but keep content)
             .replace(/<strong>(.*?)<\/strong>/g, '$1')
             
-            // Convert list items to bullet points
+            // Convert ordered list structure to numbered points
+            .replace(/<ol>/g, '')
+            .replace(/<\/ol>/g, '')
+            .replace(/<li class="numbered">(\d+\.)\s*(.*?)<\/li>/g, '$1 $2')
+            
+            // Convert unordered list structure to bullet points
             .replace(/<ul>/g, '')
             .replace(/<\/ul>/g, '')
             .replace(/<li>(.*?)<\/li>/g, '• $1')
@@ -2606,19 +2685,37 @@ class InsuranceAssistant {
             // Remove any remaining HTML tags
             .replace(/<[^>]*>/g, '');
         
-        // Decode HTML entities
+        // Step 2: Decode HTML entities
         const textarea = document.createElement('textarea');
         textarea.innerHTML = cleanContent;
         cleanContent = textarea.value;
         
-        // Clean up spacing and formatting
+        // Step 3: Clean up formatting to match the new approach
         cleanContent = cleanContent
-            // Fix multiple spaces
-            .replace(/\s+/g, ' ')
-            // Fix spacing around bullet points
+            // Handle numbered lists that come after sentences
+            .replace(/([.!?])\s*(\d+\.)\s*/g, '$1\n$2 ')
+            
+            // Handle bullet points that come after sentences
+            .replace(/([.!?])\s*•\s*/g, '$1\n• ')
+            
+            // Normalize numbered list spacing
+            .replace(/\s*(\d+\.)\s*/g, '\n$1 ')
+            
+            // Normalize bullet point spacing
             .replace(/\s*•\s*/g, '\n• ')
-            // Remove extra newlines but preserve paragraph breaks
+            
+            // Fix multiple spaces
+            .replace(/[ \t]+/g, ' ')
+            
+            // Clean up excessive newlines but preserve paragraph breaks
             .replace(/\n{3,}/g, '\n\n')
+            
+            // Ensure numbered lists are on new lines
+            .replace(/([^\n])(\d+\.)/g, '$1\n$2')
+            
+            // Ensure bullet points are on new lines
+            .replace(/([^\n])•/g, '$1\n•')
+            
             // Trim whitespace
             .trim();
         
@@ -2648,8 +2745,21 @@ class InsuranceAssistant {
     // Add after constructor initialization
     generateConversationTitle(messages) {
         try {
-            // Skip if no messages
-            if (!messages || messages.length === 0) {
+            // Enhanced validation for messages parameter
+            if (!messages) {
+                console.log('generateConversationTitle: messages is null/undefined');
+                return 'New Policy Inquiry';
+            }
+            
+            // Check if messages is an array
+            if (!Array.isArray(messages)) {
+                console.log('generateConversationTitle: messages is not an array:', typeof messages, messages);
+                return 'New Policy Inquiry';
+            }
+            
+            // Check if array is empty
+            if (messages.length === 0) {
+                console.log('generateConversationTitle: messages array is empty');
                 return 'New Policy Inquiry';
             }
 
@@ -2672,7 +2782,16 @@ class InsuranceAssistant {
             let hasIdVerification = false;
             let nationalId = '';
             
-            for (let msg of messages) {
+            // Safely iterate through messages
+            for (let i = 0; i < messages.length; i++) {
+                const msg = messages[i];
+                
+                // Validate message structure
+                if (!msg || typeof msg !== 'object' || !msg.role || !msg.content) {
+                    console.log('generateConversationTitle: Invalid message structure at index', i, msg);
+                    continue;
+                }
+                
                 // Extract National ID if present
                 if (msg.role === 'user' && /^\d{11}$/.test(msg.content.trim())) {
                     nationalId = msg.content.trim();
@@ -2755,6 +2874,7 @@ class InsuranceAssistant {
             return 'New conversation';
         } catch (error) {
             console.error('Error generating title:', error);
+            console.error('Messages parameter:', messages);
             return 'Medical Policy Inquiry';
         }
     }

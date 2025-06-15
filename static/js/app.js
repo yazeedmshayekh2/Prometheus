@@ -2511,29 +2511,18 @@ class InsuranceAssistant {
             content += 'Conversation History\n';
             content += '===================\n\n';
             
-            // Add chat history with proper text cleaning
+            // Add chat history with enhanced formatting
             this.chatHistory.forEach((msg, index) => {
                 // Skip the ID verification message
                 if (msg.role === 'assistant' && msg.content.includes('ID verified successfully')) {
                     return; // Skip this message
                 }
                 
-                // Clean the content by removing HTML tags and fixing formatting
-                let cleanContent = msg.content;
+                // Process the content with the same formatting as chat display
+                let cleanContent = this.formatContentForPDF(msg.content);
                 
-                // Remove HTML tags
-                cleanContent = cleanContent.replace(/<[^>]*>/g, '');
-                
-                // Decode HTML entities
-                const textarea = document.createElement('textarea');
-                textarea.innerHTML = cleanContent;
-                cleanContent = textarea.value;
-                
-                // Remove excessive whitespace and normalize spacing
-                cleanContent = cleanContent.replace(/\s+/g, ' ').trim();
-                
-                // Add the message to content
-                content += `${msg.role === 'user' ? 'You' : 'Assistant'}: ${cleanContent}\n\n`;
+                // Add the message to content with proper spacing
+                content += `${msg.role === 'user' ? 'You' : 'Assistant'}:\n${cleanContent}\n\n`;
             });
 
             // Create PDF using jsPDF
@@ -2563,7 +2552,7 @@ class InsuranceAssistant {
                 }
             });
             
-            // Add lines to PDF
+            // Add lines to PDF with enhanced formatting
             let yPosition = 20;
             const lineHeight = 6;
             
@@ -2574,8 +2563,12 @@ class InsuranceAssistant {
                     yPosition = 20;
                 }
                 
-                // Add the line to the PDF
-                doc.text(line, margin, yPosition);
+                // Handle bullet points with proper indentation
+                if (line.trim().startsWith('• ')) {
+                    doc.text(line, margin + 10, yPosition); // Indent bullet points
+                } else {
+                    doc.text(line, margin, yPosition);
+                }
                 yPosition += lineHeight;
             });
 
@@ -2588,6 +2581,48 @@ class InsuranceAssistant {
             console.error('Error generating PDF:', error);
             this.showToast('Failed to download conversation');
         }
+    }
+
+    // New helper function to format content for PDF
+    formatContentForPDF(content) {
+        if (!content) return '';
+        
+        // First, clean HTML tags but preserve the structure
+        let cleanContent = content;
+        
+        // Convert HTML formatting to plain text equivalents
+        cleanContent = cleanContent
+            // Convert strong tags to uppercase for emphasis
+            .replace(/<strong>(.*?)<\/strong>/g, '$1')
+            
+            // Convert list items to bullet points
+            .replace(/<ul>/g, '')
+            .replace(/<\/ul>/g, '')
+            .replace(/<li>(.*?)<\/li>/g, '• $1')
+            
+            // Convert line breaks to newlines
+            .replace(/<br\s*\/?>/g, '\n')
+            
+            // Remove any remaining HTML tags
+            .replace(/<[^>]*>/g, '');
+        
+        // Decode HTML entities
+        const textarea = document.createElement('textarea');
+        textarea.innerHTML = cleanContent;
+        cleanContent = textarea.value;
+        
+        // Clean up spacing and formatting
+        cleanContent = cleanContent
+            // Fix multiple spaces
+            .replace(/\s+/g, ' ')
+            // Fix spacing around bullet points
+            .replace(/\s*•\s*/g, '\n• ')
+            // Remove extra newlines but preserve paragraph breaks
+            .replace(/\n{3,}/g, '\n\n')
+            // Trim whitespace
+            .trim();
+        
+        return cleanContent;
     }
 
     async loadJsPDF() {

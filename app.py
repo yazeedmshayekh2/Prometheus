@@ -314,11 +314,11 @@ async def query_endpoint(request: QueryRequest):
         print(f"   Categories: {filter_result.detected_categories}")
         
         return JSONResponse(
-            status_code=400,
+            status_code=400, 
             content={
                 "detail": {
-                    "error": "inappropriate_content_blocked",
-                    "message": filter_result.warning_message,
+                "error": "inappropriate_content_blocked",
+                "message": filter_result.warning_message,
                     "suggestion": "Please ask questions related to insurance policies and services.",
                     "categories": filter_result.detected_categories
                 }
@@ -468,15 +468,15 @@ async def get_pdf(request: PDFRequest):
                 # Quick content type check
                 content_type = response.headers.get('content-type', '').lower()
                 if 'pdf' not in content_type and 'application/octet-stream' not in content_type:
-                    raise HTTPException(
-                        status_code=400, 
+                        raise HTTPException(
+                            status_code=400,
                         detail="Invalid content type - not a PDF document"
-                    )
-                
+                        )
+                        
                 # Size check for very large files
                 content_length = response.headers.get('content-length')
                 if content_length and int(content_length) > 100 * 1024 * 1024:  # 100MB limit
-                    raise HTTPException(
+                        raise HTTPException(
                         status_code=413, 
                         detail="PDF file too large (max 100MB)"
                     )
@@ -534,15 +534,15 @@ async def get_pdf(request: PDFRequest):
                 # Return streaming response with optimized headers
                 return StreamingResponse(
                     stream_and_cache(),
-                    media_type='application/pdf',
-                    headers={
+                        media_type='application/pdf',
+                        headers={
                         'Content-Disposition': f'inline; filename="{filename}"',
                         'Cache-Control': 'public, max-age=86400',  # 24 hour browser cache
                         'Accept-Ranges': 'bytes',  # Enable partial requests
                         'X-Content-Type-Options': 'nosniff',
                         'Content-Length': content_length if content_length else None
-                    }
-                )
+                        }
+                    )
                     
         except aiohttp.ClientError as e:
             print(f"❌ Network error for {pdf_link}: {e}")
@@ -555,7 +555,7 @@ async def get_pdf(request: PDFRequest):
             raise HTTPException(
                 status_code=504,
                 detail="Request timeout - PDF server is slow"
-            )
+                )
                 
     except HTTPException:
         raise

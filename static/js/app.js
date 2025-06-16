@@ -564,9 +564,9 @@ class InsuranceAssistant {
 
         // Step 7: Regular bullet points at the start of lines
         html = html
-            .replace(/^•\s+(.+)$/gm, '<li>$1.</li>')
-            .replace(/^\*\s+(.+)$/gm, '<li>$1.</li>')
-            .replace(/^-\s+(.+)$/gm, '<li>$1.</li>');
+            .replace(/^•\s+(.+)$/gm, '<li>$1</li>')
+            .replace(/^\*\s+(.+)$/gm, '<li>$1</li>')
+            .replace(/^-\s+(.+)$/gm, '<li>$1</li>');
 
         // Step 8: Wrap <li> elements in <ul>
         html = this.wrapListItems(html);

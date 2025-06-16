@@ -4694,8 +4694,8 @@ INSTRUCTIONS:
 2. Include all information from the FAQ answer
 3. Add relevant context and details that would be helpful for this specific question
 4. Explain any technical terms or processes mentioned
-5. If the FAQ answer mentions contact information, emphasize it clearly
-6. If the FAQ answer has steps or options, format them clearly with bullet points
+5. don't mention anything related to the contact information except that information is already founded at the retrieved information.
+6. If the FAQ answer - if and only if it -  has steps or options, format them clearly with bullet points
 7. Be comprehensive but conversational and easy to understand
 8. Use **bold** formatting for important information like phone numbers, amounts, or key points
 

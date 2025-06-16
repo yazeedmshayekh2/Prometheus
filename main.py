@@ -4483,7 +4483,7 @@ ANSWER:
             # Search FAQ vector store - get more results to find the best match
             results = self.faq_vector_store.similarity_search_with_score(
                 query=question,
-                k=20  # Get more results to find the absolute best match
+                k=5  # Get more results to find the absolute best match
             )
             
             print(f"Raw search results: {len(results)} found")
@@ -4569,30 +4569,35 @@ ANSWER:
         try:
             print(f"Starting integrated search for: {question[:50]}...")
             
-            # Step 1: Search FAQ collection with semantic similarity
+            # Step 1: Search FAQ collection with semantic similarity (UNCHANGED)
             faq_results = self.search_faq_semantic(question, k=5, similarity_threshold=0.85)  # High threshold for FAQ matches
             
             if faq_results:
-                # Found good FAQ match
+                # Found good FAQ match - now enhance it with LLM-generated detailed response
                 best_faq = faq_results[0]
                 print(f"Found FAQ match with similarity: {best_faq['similarity']:.3f}")
+                print(f"Enhancing FAQ answer with contextual details...")
+                
+                # Generate enhanced answer using LLM
+                enhanced_answer = self._generate_enhanced_faq_answer(question, best_faq)
                 
                 return {
-                    'answer': best_faq['answer'],
-                    'source_type': 'faq',
+                    'answer': enhanced_answer,
+                    'source_type': 'faq_enhanced',
                     'confidence': best_faq['similarity'],
                     'sources': [{
                         'content': f"FAQ: {best_faq['question']}",
-                        'source': 'FAQ Database',
+                        'source': 'FAQ Database (Enhanced)',
                         'score': best_faq['similarity'],
-                        'type': 'faq'
+                        'type': 'faq_enhanced'
                     }],
-                    'explanation': f"Answer found in FAQ database with {best_faq['similarity']:.1%} similarity",
+                    'explanation': f"Enhanced FAQ answer with contextual details (similarity: {best_faq['similarity']:.1%})",
                     'faq_data': best_faq,
+                    'original_faq_answer': best_faq['answer'],  # Keep original for reference
                     'suggested_questions': self._get_related_faq_questions(question, exclude_id=best_faq.get('faq_id'))
                 }
             
-            # Step 2: No good FAQ match, search policy documents
+            # Step 2: No good FAQ match, search policy documents (UNCHANGED)
             print("No suitable FAQ match found, searching policy documents...")
             
             # Use existing search functionality for policy documents  
@@ -4661,25 +4666,92 @@ ANSWER:
                 'explanation': f"Search error: {str(e)}"
             }
     
-    def _get_related_faq_questions(self, original_question: str, exclude_id: str = None, k: int = 3) -> List[str]:
-        """Get related FAQ questions for suggestions"""
+    def _generate_enhanced_faq_answer(self, user_question: str, faq_data: Dict[str, Any]) -> str:
+        """
+        Generate an enhanced, contextual answer based on the user's question and FAQ answer
+        This adds relevant details and context to make the FAQ answer more comprehensive
+        """
         try:
-            # Search for related FAQs with lower threshold
-            related_faqs = self.search_faq_semantic(original_question, k=k+5, similarity_threshold=0.4)
+            faq_question = faq_data.get('question', '')
+            faq_answer = faq_data.get('answer', '')
             
+            print(f"Enhancing FAQ answer:")
+            print(f"  User question: {user_question}")
+            print(f"  FAQ question: {faq_question}")
+            print(f"  Original FAQ answer: {faq_answer[:100]}...")
+            
+            # Create enhancement prompt
+            enhancement_prompt = f"""You are an insurance expert assistant. A user asked a question that matches an FAQ in our database. Your task is to provide a comprehensive, detailed answer based on both the user's specific question and the FAQ answer.
+
+USER'S QUESTION: {user_question}
+
+MATCHED FAQ:
+Question: {faq_question}
+Answer: {faq_answer}
+
+INSTRUCTIONS:
+1. Start with a direct answer to the user's specific question
+2. Include all information from the FAQ answer
+3. Add relevant context and details that would be helpful for this specific question
+4. Explain any technical terms or processes mentioned
+5. If the FAQ answer mentions contact information, emphasize it clearly
+6. If the FAQ answer has steps or options, format them clearly with bullet points
+7. Be comprehensive but conversational and easy to understand
+8. Use **bold** formatting for important information like phone numbers, amounts, or key points
+
+ENHANCED ANSWER:"""
+
+            # Generate enhanced response
+            enhanced_answer = self.llm._generate_text(
+                enhancement_prompt, 
+                max_tokens=800,  # Allow for longer, more detailed responses
+                temperature=0.3   # Keep it factual and consistent
+            )
+            
+            # Clean up the response
+            enhanced_answer = enhanced_answer.strip()
+            
+            # Apply email replacement
+            enhanced_answer = self._replace_old_email_with_new(enhanced_answer)
+            
+            print(f"Enhanced answer generated: {len(enhanced_answer)} characters")
+            print(f"Enhanced preview: {enhanced_answer[:150]}...")
+            
+            return enhanced_answer
+            
+        except Exception as e:
+            print(f"Error enhancing FAQ answer: {str(e)}")
+            # Fallback to original FAQ answer if enhancement fails
+            fallback_answer = f"**Answer:** {faq_data.get('answer', 'No answer available')}"
+            return self._replace_old_email_with_new(fallback_answer)
+
+    def _get_related_faq_questions(self, original_question: str, exclude_id: str = None, k: int = 3) -> List[str]:
+        """
+        Get related FAQ questions that might be of interest to the user
+        """
+        try:
+            # Search for similar questions with a lower threshold to get related topics
+            related_results = self.search_faq_semantic(original_question, k=k*2, similarity_threshold=0.6)
+            
+            # Filter out the exact match and get diverse related questions
             suggestions = []
-            for faq in related_faqs:
-                # Skip the already matched FAQ
-                if exclude_id and faq.get('faq_id') == exclude_id:
+            seen_topics = set()
+            
+            for result in related_results:
+                if exclude_id and str(result.get('faq_id')) == str(exclude_id):
+                    continue
+                    
+                question = result.get('question', '')
+                if not question:
                     continue
                 
-                # Prefer English questions, fallback to Arabic
-                question_text = faq.get('question_en', '') or faq.get('question_ar', '')
-                if question_text and question_text not in suggestions:
-                    suggestions.append(question_text)
+                # Simple topic extraction to ensure diversity
+                topic_keywords = set(question.lower().split()[:3])  # First 3 words as topic
+                topic_signature = ''.join(sorted(topic_keywords))
                 
-                if len(suggestions) >= k:
-                    break
+                if topic_signature not in seen_topics and len(suggestions) < k:
+                    suggestions.append(question)
+                    seen_topics.add(topic_signature)
             
             return suggestions
             

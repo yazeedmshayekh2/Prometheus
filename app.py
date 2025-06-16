@@ -351,8 +351,14 @@ async def query_endpoint(request: QueryRequest):
             "confidence": search_result.get('confidence', 0.0),
             "explanation": search_result.get('explanation', 'No explanation available'),
             "pdf_info": None,
-            "is_faq": search_result.get('source_type') == 'faq'
+            "is_faq": search_result.get('source_type') in ['faq', 'faq_enhanced']  # Include both FAQ types
         }
+        
+        # Add enhanced FAQ specific data if available
+        if search_result.get('source_type') == 'faq_enhanced':
+            response_data["original_faq_answer"] = search_result.get('original_faq_answer')
+            response_data["faq_data"] = search_result.get('faq_data')
+            response_data["enhanced"] = True  # Flag to indicate this is an enhanced FAQ answer
         
         # Add suggested questions if available
         if search_result.get('suggested_questions'):

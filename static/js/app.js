@@ -562,16 +562,19 @@ class InsuranceAssistant {
         html = html
             .replace(/^(\d+\.)\s+(.+)$/gm, '<li class="numbered">$2.</li>');
 
-        // Step 7: Regular bullet points at the start of lines
+        // Step 7: Regular bullet points at the start of lines - remove bullet character
         html = html
             .replace(/^•\s+(.+)$/gm, '<li>$1</li>')
             .replace(/^\*\s+(.+)$/gm, '<li>$1</li>')
             .replace(/^-\s+(.+)$/gm, '<li>$1</li>');
 
-        // Step 8: Wrap <li> elements in <ul>
+        // Step 8: Remove any remaining bullet points that might be inside li elements
+        html = html.replace(/<li>•\s*/g, '<li>');
+
+        // Step 9: Wrap <li> elements in <ul>
         html = this.wrapListItems(html);
 
-        // Step 9: Line breaks
+        // Step 10: Line breaks
         html = html.replace(/\n/g, '<br>');
 
         return html;
@@ -692,6 +695,9 @@ class InsuranceAssistant {
                 }
                 return match;
             });
+
+        // Remove any remaining bullet points that might be inside li elements
+        html = html.replace(/<li>•\s*/g, '<li>');
             
         // Properly wrap lists in <ul> tags - this is more complex and needs a separate step
         // Find consecutive <li> elements and wrap them in <ul> tags

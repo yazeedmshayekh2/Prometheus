@@ -225,13 +225,13 @@ class AuthDB:
             # Build query based on whether to include archived conversations
             if include_archived:
                 query = '''
-                    SELECT c.*, GROUP_CONCAT(json_object(
-                        'role', m.role,
-                        'content', m.content
-                    )) as messages
-                    FROM conversations c
-                    LEFT JOIN messages m ON c.id = m.conversation_id
-                    WHERE c.user_id = ?
+                SELECT c.*, GROUP_CONCAT(json_object(
+                    'role', m.role,
+                    'content', m.content
+                )) as messages
+                FROM conversations c
+                LEFT JOIN messages m ON c.id = m.conversation_id
+                WHERE c.user_id = ?
                     GROUP BY c.id
                     ORDER BY c.archived ASC, c.updated_at DESC
                 '''
@@ -244,8 +244,8 @@ class AuthDB:
                     FROM conversations c
                     LEFT JOIN messages m ON c.id = m.conversation_id
                     WHERE c.user_id = ? AND c.archived = FALSE
-                    GROUP BY c.id
-                    ORDER BY c.updated_at DESC
+                GROUP BY c.id
+                ORDER BY c.updated_at DESC
                 '''
             
             cursor.execute(query, (user_id,))

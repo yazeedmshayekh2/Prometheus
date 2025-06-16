@@ -55,7 +55,9 @@ INDICES_DIR.mkdir(exist_ok=True)
 # Initialize Qdrant client
 QDRANT_PATH = INDICES_DIR / "qdrant_storage"
 COLLECTION_NAME = "insurance_docs"
-VECTOR_SIZE = 768  
+FAQ_COLLECTION_NAME = "faq_docs"  # New FAQ collection
+VECTOR_SIZE = 768
+FAQ_VECTOR_SIZE = 768  # Multilingual model also has 768 dimensions
 
 class State(TypedDict):
     messages: Annotated[List[BaseMessage], "Chat message history"]
@@ -540,6 +542,10 @@ class DocumentQASystem:
         """Initialize the QA system"""
         print("Initializing QA system...")
         
+        # Set collection names as class attributes
+        self.COLLECTION_NAME = COLLECTION_NAME
+        self.FAQ_COLLECTION_NAME = FAQ_COLLECTION_NAME
+        
         # Verify CUDA availability for AWQ models
         if not torch.cuda.is_available():
             raise RuntimeError("CUDA is required for this system but is not available. Please ensure CUDA is properly installed.")
@@ -594,12 +600,22 @@ class DocumentQASystem:
         self.bm25_index_path = self.indices_dir / "bm25_index.pkl"
 
     def _initialize_embeddings(self):
-        """Initialize embeddings model"""
+        """Initialize embeddings models - one for policy docs, one for FAQs"""
+        # Original embeddings for policy documents
         self.embeddings = HuggingFaceEmbeddings(
             model_name="hkunlp/instructor-xl",
             cache_folder='./hf_cache',
             encode_kwargs={'normalize_embeddings': True}
         )
+        print("Policy documents embeddings initialized")
+        
+        # Multilingual embeddings for FAQ documents (Arabic + English support)
+        self.faq_embeddings = HuggingFaceEmbeddings(
+            model_name="sentence-transformers/paraphrase-multilingual-mpnet-base-v2",
+            cache_folder='./hf_cache',
+            encode_kwargs={'normalize_embeddings': True}
+        )
+        print("FAQ multilingual embeddings initialized")
 
     def _initialize_database(self, db_connection_string: Optional[str]):
         """Initialize database connection"""
@@ -2483,12 +2499,12 @@ Please give a short succinct context to situate this chunk within the overall do
         except Exception as e:
             print(f"Error verifying collections: {str(e)}")
     def _initialize_vector_store(self):
-        """Initialize the vector store"""
+        """Initialize both vector stores - one for policy docs, one for FAQs"""
         try:
-            # First try to get existing collection info
+            # Initialize Policy Documents Collection
             try:
                 collection_info = self.qdrant_client.get_collection(COLLECTION_NAME)
-                print(f"Found existing collection: {COLLECTION_NAME}")
+                print(f"Found existing policy collection: {COLLECTION_NAME}")
             except Exception:
                 # Collection doesn't exist, create it with DOT product distance
                 self.qdrant_client.create_collection(
@@ -2508,21 +2524,56 @@ Please give a short succinct context to situate this chunk within the overall do
                         )
                     )
                 )
-                print(f"Created new collection: {COLLECTION_NAME}")
+                print(f"Created new policy collection: {COLLECTION_NAME}")
 
-            # Initialize vector store with DOT product distance
+            # Initialize policy documents vector store
             self.vector_store = QdrantVectorStore(
                 client=self.qdrant_client,
                 collection_name=COLLECTION_NAME,
                 embedding=self.embeddings,
                 distance=Distance.DOT
             )
-            print("Vector store initialized")
+            print("Policy documents vector store initialized")
+            
+            # Initialize FAQ Documents Collection
+            try:
+                faq_collection_info = self.qdrant_client.get_collection(FAQ_COLLECTION_NAME)
+                print(f"Found existing FAQ collection: {FAQ_COLLECTION_NAME}")
+            except Exception:
+                # Collection doesn't exist, create it with COSINE distance (better for multilingual)
+                self.qdrant_client.create_collection(
+                    collection_name=FAQ_COLLECTION_NAME,
+                    vectors_config=VectorParams(
+                        size=FAQ_VECTOR_SIZE,
+                        distance=Distance.COSINE,  # COSINE is better for multilingual embeddings
+                        on_disk=True
+                    ),
+                    optimizers_config=OptimizersConfigDiff(
+                        default_segment_number=2,  # Smaller for FAQ collection
+                        indexing_threshold=0
+                    ),
+                    quantization_config=BinaryQuantization(
+                        binary=BinaryQuantizationConfig(
+                            always_ram=True
+                        )
+                    )
+                )
+                print(f"Created new FAQ collection: {FAQ_COLLECTION_NAME}")
+
+            # Initialize FAQ vector store
+            self.faq_vector_store = QdrantVectorStore(
+                client=self.qdrant_client,
+                collection_name=FAQ_COLLECTION_NAME,
+                embedding=self.faq_embeddings,
+                distance=Distance.COSINE
+            )
+            print("FAQ vector store initialized")
             
         except Exception as e:
-            print(f"Error initializing vector store: {str(e)}")
-            # Try to recreate the collection if there's an error
+            print(f"Error initializing vector stores: {str(e)}")
+            # Try to recreate collections if there's an error
             try:
+                # Recreate policy collection
                 self.qdrant_client.recreate_collection(
                     collection_name=COLLECTION_NAME,
                     vectors_config=VectorParams(
@@ -2546,9 +2597,34 @@ Please give a short succinct context to situate this chunk within the overall do
                     embedding=self.embeddings,
                     distance=Distance.DOT
                 )
-                print("Vector store reinitialized after recreation")
+                
+                # Recreate FAQ collection
+                self.qdrant_client.recreate_collection(
+                    collection_name=FAQ_COLLECTION_NAME,
+                    vectors_config=VectorParams(
+                        size=FAQ_VECTOR_SIZE,
+                        distance=Distance.COSINE,
+                        on_disk=True
+                    ),
+                    optimizers_config=OptimizersConfigDiff(
+                        default_segment_number=2,
+                        indexing_threshold=0
+                    ),
+                    quantization_config=BinaryQuantization(
+                        binary=BinaryQuantizationConfig(
+                            always_ram=True
+                        )
+                    )
+                )
+                self.faq_vector_store = QdrantVectorStore(
+                    client=self.qdrant_client,
+                    collection_name=FAQ_COLLECTION_NAME,
+                    embedding=self.faq_embeddings,
+                    distance=Distance.COSINE
+                )
+                print("Both vector stores reinitialized after recreation")
             except Exception as recreate_error:
-                print(f"Error recreating vector store: {str(recreate_error)}")
+                print(f"Error recreating vector stores: {str(recreate_error)}")
 
     def _initialize_ivf_index(self):
         """Initialize the IVF index for fast similarity search"""
@@ -4266,5 +4342,349 @@ ANSWER:
             print(f"Error in RAG Fusion search: {str(e)}")
             # Fallback to regular multi-stage search
             return self._multi_stage_search(question, collections, top_k)
+
+    def index_faq_data(self):
+        """Index FAQ data from database into Qdrant collection"""
+        if not self.db:
+            print("No database connection available for FAQ indexing")
+            return False
+        
+        try:
+            print("Starting FAQ data indexing...")
+            
+            # Get FAQ data from database
+            faq_data = self._get_faq_data_from_db()
+            if not faq_data:
+                print("No FAQ data found to index")
+                return False
+            
+            print(f"Found {len(faq_data)} FAQ entries to index")
+            
+            # Prepare texts and metadata
+            texts = []
+            metadatas = []
+            
+            for faq in faq_data:
+                # Index both English and Arabic questions if available
+                if faq.get('question_en') and faq['question_en'].strip():
+                    texts.append(faq['question_en'].strip())
+                    metadatas.append({
+                        'id': faq['id'],
+                        'question_en': faq['question_en'],
+                        'question_ar': faq.get('question_ar', ''),
+                        'answer_en': faq.get('answer_en', ''),
+                        'answer_ar': faq.get('answer_ar', ''),
+                        'language': 'en',
+                        'type': 'faq_question'
+                    })
+                
+                if faq.get('question_ar') and faq['question_ar'].strip():
+                    texts.append(faq['question_ar'].strip())
+                    metadatas.append({
+                        'id': faq['id'],
+                        'question_en': faq.get('question_en', ''),
+                        'question_ar': faq['question_ar'],
+                        'answer_en': faq.get('answer_en', ''),
+                        'answer_ar': faq.get('answer_ar', ''),
+                        'language': 'ar',
+                        'type': 'faq_question'
+                    })
+            
+            if not texts:
+                print("No valid FAQ texts found to index")
+                return False
+            
+            # Add texts to FAQ vector store in batches
+            batch_size = 50
+            for i in range(0, len(texts), batch_size):
+                batch_texts = texts[i:i + batch_size]
+                batch_metadatas = metadatas[i:i + batch_size]
+                
+                self.faq_vector_store.add_texts(
+                    texts=batch_texts,
+                    metadatas=batch_metadatas
+                )
+                print(f"Indexed FAQ batch {i//batch_size + 1}/{(len(texts) + batch_size - 1)//batch_size}")
+            
+            print(f"Successfully indexed {len(texts)} FAQ entries")
+            return True
+            
+        except Exception as e:
+            print(f"Error indexing FAQ data: {str(e)}")
+            return False
+    
+    def _get_faq_data_from_db(self):
+        """Get FAQ data from database"""
+        try:
+            import pyodbc
+            
+            # Use environment variables for database connection (same as database.py)
+            db_server = os.getenv('DB_SERVER', '192.168.3.120')
+            db_name = os.getenv('DB_NAME', 'agencyDB_Live')
+            db_user = os.getenv('DB_USER', 'sa')
+            db_password = os.getenv('DB_PASSWORD', 'P@ssw0rdSQL')
+            
+            conn_str = (
+                'DRIVER={ODBC Driver 18 for SQL Server};'
+                f'SERVER={db_server};'
+                f'DATABASE={db_name};'
+                f'UID={db_user};'
+                f'PWD={db_password};'
+                'TrustServerCertificate=yes;'
+                'Encrypt=no;'
+            )
+            
+            print(f"Connecting to FAQ database: {db_server}/{db_name}")
+            connection = pyodbc.connect(conn_str)
+            cursor = connection.cursor()
+            
+            query = """
+            SELECT 
+                q.ID,
+                q.QuestionEN,
+                q.QuestionAR,
+                a.AnswerEN,
+                a.AnswerAR
+            FROM agencyDB_Live.dbo.tblFAQQuestions AS q
+            LEFT JOIN agencyDB_Live.dbo.tblFAQAnswer AS a
+                ON q.ID = a.QuestionID
+            WHERE q.isDeleted = 0 AND q.isVisible = 1
+              AND (a.isDeleted = 0 AND a.isVisible = 1)
+            """
+            
+            cursor.execute(query)
+            results = cursor.fetchall()
+            
+            faq_data = []
+            for row in results:
+                faq_data.append({
+                    'id': row[0],
+                    'question_en': row[1] if row[1] else '',
+                    'question_ar': row[2] if row[2] else '',
+                    'answer_en': row[3] if row[3] else '',
+                    'answer_ar': row[4] if row[4] else ''
+                })
+            
+            cursor.close()
+            connection.close()
+            
+            print(f"Retrieved {len(faq_data)} FAQ entries from database")
+            return faq_data
+            
+        except Exception as e:
+            print(f"Error getting FAQ data from database: {str(e)}")
+            return []
+    
+    def search_faq_semantic(self, question: str, k: int = 5, similarity_threshold: float = 0.85) -> List[Dict[str, Any]]:
+        """Search for similar FAQ questions using semantic similarity with high threshold"""
+        try:
+            print(f"Searching FAQ collection for: {question[:50]}... (threshold: {similarity_threshold})")
+            
+            # Search FAQ vector store - get more results to find the best match
+            results = self.faq_vector_store.similarity_search_with_score(
+                query=question,
+                k=20  # Get more results to find the absolute best match
+            )
+            
+            print(f"Raw search results: {len(results)} found")
+            
+            best_match = None
+            best_similarity = 0.0
+            
+            for i, (doc, similarity) in enumerate(results):
+                # FIXED: Correctly convert cosine distance to similarity
+                # For cosine distance: 0 = identical, 1 = completely different
+                # So similarity = 1 - distance
+                similarity = similarity
+                
+                print(f"Result {i+1}: similarity={similarity:.6f}")
+                
+                # Track the best match
+                if similarity > best_similarity:
+                    best_similarity = similarity
+                    best_match = doc
+                
+                print(f"  Question: {doc.metadata.get('question_en', doc.metadata.get('question_ar', 'N/A'))[:100]}")
+                
+                # Get the best answer based on language preference or availability
+                answer = ""
+                if doc.metadata.get('answer_en') and doc.metadata['answer_en'].strip():
+                    answer = doc.metadata['answer_en'].strip()
+                elif doc.metadata.get('answer_ar') and doc.metadata['answer_ar'].strip():
+                    answer = doc.metadata['answer_ar'].strip()
+                
+                print(f"  Answer: {answer[:100] if answer else 'N/A'}")
+                print(f"  Language: {doc.metadata.get('language', 'N/A')}")
+                print(f"  FAQ ID: {doc.metadata.get('id', 'N/A')}")
+                print()
+            
+            # Only return the best match if it meets the high threshold
+            if best_match and best_similarity >= similarity_threshold:
+                # Extract question and answer based on language
+                question = ""
+                answer = ""
+                
+                if best_match.metadata.get('language') == 'en':
+                    question = best_match.metadata.get('question_en', '')
+                    answer = best_match.metadata.get('answer_en', '') or best_match.metadata.get('answer_ar', '')
+                else:
+                    question = best_match.metadata.get('question_ar', '')
+                    answer = best_match.metadata.get('answer_ar', '') or best_match.metadata.get('answer_en', '')
+                
+                # If still no answer, try any available
+                if not answer:
+                    answer = best_match.metadata.get('answer_en', '') or best_match.metadata.get('answer_ar', '')
+                
+                faq_match = {
+                    'question': question,
+                    'answer': answer,
+                    'language': best_match.metadata.get('language', 'unknown'),
+                    'faq_id': best_match.metadata.get('id', ''),
+                    'similarity': best_similarity,
+                    'is_high_confidence': True
+                }
+                
+                print(f"✅ High-confidence FAQ match found!")
+                print(f"   Similarity: {best_similarity:.3f} (threshold: {similarity_threshold})")
+                print(f"   Question: {faq_match['question'][:100]}...")
+                print(f"   Answer: {faq_match['answer'][:100]}...")
+                
+                return [faq_match]  # Return only the best match as a list
+            else:
+                print(f"❌ No high-confidence FAQ match found.")
+                print(f"   Best similarity: {best_similarity:.3f} (threshold: {similarity_threshold})")
+                return []
+            
+        except Exception as e:
+            print(f"Error in FAQ semantic search: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return []
+
+    def integrated_search(self, question: str, national_id: str = None, k: int = 10) -> Dict[str, Any]:
+        """
+        Integrated search that combines FAQ semantic search with policy document search
+        FAQ search gets priority, falls back to policy documents if no good FAQ match
+        """
+        try:
+            print(f"Starting integrated search for: {question[:50]}...")
+            
+            # Step 1: Search FAQ collection with semantic similarity
+            faq_results = self.search_faq_semantic(question, k=5, similarity_threshold=0.85)  # High threshold for FAQ matches
+            
+            if faq_results:
+                # Found good FAQ match
+                best_faq = faq_results[0]
+                print(f"Found FAQ match with similarity: {best_faq['similarity']:.3f}")
+                
+                return {
+                    'answer': best_faq['answer'],
+                    'source_type': 'faq',
+                    'confidence': best_faq['similarity'],
+                    'sources': [{
+                        'content': f"FAQ: {best_faq['question']}",
+                        'source': 'FAQ Database',
+                        'score': best_faq['similarity'],
+                        'type': 'faq'
+                    }],
+                    'explanation': f"Answer found in FAQ database with {best_faq['similarity']:.1%} similarity",
+                    'faq_data': best_faq,
+                    'suggested_questions': self._get_related_faq_questions(question, exclude_id=best_faq.get('faq_id'))
+                }
+            
+            # Step 2: No good FAQ match, search policy documents
+            print("No suitable FAQ match found, searching policy documents...")
+            
+            # Use existing search functionality for policy documents  
+            try:
+                # Try the intelligent search method first
+                policy_results = self.intelligent_search_and_answer(national_id, question)
+                if policy_results and hasattr(policy_results, 'answer'):
+                    return {
+                        'answer': policy_results.answer,
+                        'source_type': 'policy',
+                        'confidence': 0.8,  # Default confidence for policy search
+                        'sources': [{'content': src.content, 'source': src.source, 'score': src.score} 
+                                   for src in policy_results.sources],
+                        'explanation': "Answer generated from policy documents"
+                    }
+            except Exception as e:
+                print(f"Error with intelligent search: {e}")
+            
+            # Fallback: try multi-stage search if available
+            try:
+                if hasattr(self, '_multi_stage_search'):
+                    # Get user collections for search
+                    user_collections = []
+                    if national_id:
+                        documents = self.get_policy_documents_by_national_id(national_id)
+                        for doc_info in documents:
+                            pdf_filename = doc_info['pdf_link'].split('/')[-1]
+                            collection_name = self.document_collections.get(pdf_filename)
+                            if collection_name:
+                                user_collections.append(collection_name)
+                    
+                    if user_collections:
+                        chunks = self._multi_stage_search(question, user_collections, k)
+                        if chunks:
+                            # Generate response from chunks
+                            context_text = self._prepare_context_for_llm(chunks, question)
+                            response_text = self._generate_intelligent_response(question, context_text)
+                            
+                            return {
+                                'answer': response_text,
+                                'source_type': 'policy',
+                                'confidence': 0.7,
+                                'sources': [{'content': chunk.content[:200], 'source': chunk.metadata.get('source', 'Unknown'), 'score': chunk.relevance_score} 
+                                           for chunk in chunks[:3]],
+                                'explanation': "Answer generated from policy documents using multi-stage search"
+                            }
+            except Exception as e:
+                print(f"Error with multi-stage search: {e}")
+            
+            # Final fallback
+            return {
+                'answer': "I couldn't find specific information about this in either the FAQ database or policy documents. Could you please rephrase your question or provide more details?",
+                'source_type': 'none',
+                'confidence': 0.0,
+                'sources': [],
+                'explanation': "No relevant information found in available sources"
+            }
+            
+        except Exception as e:
+            print(f"Error in integrated search: {str(e)}")
+            return {
+                'answer': "I encountered an error while searching for an answer. Please try again.",
+                'source_type': 'error',
+                'confidence': 0.0,
+                'sources': [],
+                'explanation': f"Search error: {str(e)}"
+            }
+    
+    def _get_related_faq_questions(self, original_question: str, exclude_id: str = None, k: int = 3) -> List[str]:
+        """Get related FAQ questions for suggestions"""
+        try:
+            # Search for related FAQs with lower threshold
+            related_faqs = self.search_faq_semantic(original_question, k=k+5, similarity_threshold=0.4)
+            
+            suggestions = []
+            for faq in related_faqs:
+                # Skip the already matched FAQ
+                if exclude_id and faq.get('faq_id') == exclude_id:
+                    continue
+                
+                # Prefer English questions, fallback to Arabic
+                question_text = faq.get('question_en', '') or faq.get('question_ar', '')
+                if question_text and question_text not in suggestions:
+                    suggestions.append(question_text)
+                
+                if len(suggestions) >= k:
+                    break
+            
+            return suggestions
+            
+        except Exception as e:
+            print(f"Error getting related FAQ questions: {str(e)}")
+            return []
 
 

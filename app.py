@@ -36,6 +36,8 @@ import numpy as np
 import asyncio
 import traceback
 import warnings
+from functools import lru_cache
+import hashlib
 
 # Load environment variables from .env file
 from dotenv import load_dotenv
@@ -59,6 +61,55 @@ except ImportError:
 qa_system = None
 question_processor = None
 tts_pipeline = None
+
+# Global session for connection pooling
+pdf_session = None
+
+async def get_pdf_session():
+    """Get or create a global aiohttp session for PDF downloads"""
+    global pdf_session
+    if pdf_session is None or pdf_session.closed:
+        # Create SSL context that doesn't verify certificates
+        ssl_context = ssl.create_default_context()
+        ssl_context.check_hostname = False
+        ssl_context.verify_mode = ssl.CERT_NONE
+        
+        # Configure connector with optimizations
+        connector = aiohttp.TCPConnector(
+            ssl=ssl_context,
+            limit=100,  # Total connection pool size
+            limit_per_host=30,  # Max connections per host
+            ttl_dns_cache=300,  # DNS cache TTL
+            use_dns_cache=True,
+            keepalive_timeout=30,
+            enable_cleanup_closed=True
+        )
+        
+        # Configure timeout
+        timeout = aiohttp.ClientTimeout(
+            total=60,  # Total timeout for the entire request
+            connect=10,  # Timeout for establishing connection
+            sock_read=30   # Timeout for reading data
+        )
+        
+        pdf_session = aiohttp.ClientSession(
+            connector=connector,
+            timeout=timeout,
+            headers={
+                'User-Agent': 'Insurance-Policy-Viewer/1.0',
+                'Accept': 'application/pdf,*/*',
+                'Accept-Encoding': 'gzip, deflate'
+            }
+        )
+    return pdf_session
+
+def get_pdf_cache_path(pdf_link: str) -> Path:
+    """Generate cache file path for PDF"""
+    # Create hash of URL for filename
+    url_hash = hashlib.md5(pdf_link.encode()).hexdigest()
+    cache_dir = Path("pdf_cache")
+    cache_dir.mkdir(exist_ok=True)
+    return cache_dir / f"{url_hash}.pdf"
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -97,6 +148,12 @@ async def lifespan(app: FastAPI):
     
     # Cleanup if needed
     print("Shutting down...")
+    
+    # Close PDF session if it exists
+    global pdf_session
+    if pdf_session and not pdf_session.closed:
+        await pdf_session.close()
+        print("PDF session closed")
     
     # Close ngrok tunnel if it's open
     if ngrok:
@@ -242,28 +299,31 @@ async def query_endpoint(request: QueryRequest):
     if not qa_system or not question_processor:
         raise HTTPException(status_code=500, detail="System not initialized")
     
-    # Filter the user's question for harmful content
+    print(f"\n📝 Query received:")
+    print(f"   Question: {request.question}")
+    print(f"   National ID: {request.national_id}")
+    
+    # Content filtering with comprehensive threat detection
     filter_result = filter_user_input(request.question)
     
-    # If content is CRITICAL or SEVERE, block it immediately
-    if filter_result.threat_level in [ContentThreatLevel.CRITICAL, ContentThreatLevel.SEVERE]:
-        print(f"⚠️ Blocked inappropriate/harmful content - Threat: {filter_result.threat_level.value}")
-        print(f"   Categories: {filter_result.detected_categories}")
-        print(f"   Original: {request.question}")
-        
-        raise HTTPException(
-            status_code=400, 
-            detail={
-                "error": "inappropriate_content_blocked",
-                "message": filter_result.warning_message,
-                "suggestion": "Please rephrase your question using respectful language and focus on insurance topics."
-            }
-        )
-    
-    # If content is MILD or MODERATE, sanitize it and add a warning to the response
-    # The original question will be replaced by the sanitized version for processing
     user_question_to_process = request.question
     content_warning_for_response = None
+    
+    if filter_result.threat_level in [ContentThreatLevel.SEVERE, ContentThreatLevel.CRITICAL]:
+        print(f"🚫 Blocking harmful content - Threat: {filter_result.threat_level.value}")
+        print(f"   Categories: {filter_result.detected_categories}")
+        
+        return JSONResponse(
+            status_code=400,
+            content={
+                "detail": {
+                    "error": "inappropriate_content_blocked",
+                    "message": filter_result.warning_message,
+                    "suggestion": "Please ask questions related to insurance policies and services.",
+                    "categories": filter_result.detected_categories
+                }
+            }
+        )
     
     if not filter_result.is_safe:
         print(f"⚠️ Sanitized inappropriate/harmful content - Threat: {filter_result.threat_level.value}")
@@ -274,128 +334,35 @@ async def query_endpoint(request: QueryRequest):
         print(f"   Sanitized to: {user_question_to_process}")
         
     try:
-        # Step 1: Check FAQ database for exact match first
-        print(f"Checking FAQ database for question: {user_question_to_process[:50]}...")
-        faq_answer = get_faq_answer(user_question_to_process)
+        # Use the new integrated search that combines FAQ and policy document search
+        print(f"Using integrated search for question: {user_question_to_process[:50]}...")
         
-        if faq_answer:
-            print(f"Found exact FAQ match, returning FAQ answer")
-            response_data = {
-                "answer": faq_answer,
-                "sources": [{"content": "FAQ Database", "source": "FAQ", "score": 1.0}],
-                "question_type": "faq",
-                "confidence": 1.0,
-                "explanation": "Answer retrieved from FAQ database",
-                "pdf_info": None,
-                "is_faq": True  # Flag to indicate this is from FAQ
-            }
-            
-            # Add content warning if one was generated
-            if content_warning_for_response:
-                response_data["content_warning"] = content_warning_for_response
-            
-            # Still try to get PDF info if national_id is provided
-            if request.national_id:
-                try:
-                    policy_details = qa_system.lookup_policy_details(request.national_id)
-                    if policy_details and "primary_member" in policy_details:
-                        member = policy_details["primary_member"]
-                        if member.get("policies"):
-                            for policy in member["policies"]:
-                                if policy.get('pdf_link'):
-                                    response_data["pdf_info"] = {
-                                        "pdf_link": policy['pdf_link'],
-                                        "company_name": policy.get('company_name', 'Unknown'),
-                                        "policy_number": policy.get('policy_number', 'Unknown')
-                                    }
-                                    break
-                except Exception as e:
-                    print(f"Error getting PDF info for FAQ response: {str(e)}")
-            
-            return response_data
-        
-        # Step 2: Check for similar FAQ questions if no exact match
-        print(f"No exact FAQ match found, checking for similar questions...")
-        similar_faq_answer = search_similar_faq(user_question_to_process)
-        
-        if similar_faq_answer:
-            print(f"Found similar FAQ match, returning similar FAQ answer")
-            response_data = {
-                "answer": similar_faq_answer,
-                "sources": [{"content": "FAQ Database (Similar)", "source": "FAQ", "score": 0.8}],
-                "question_type": "faq_similar",
-                "confidence": 0.8,
-                "explanation": "Answer retrieved from similar question in FAQ database",
-                "pdf_info": None,
-                "is_faq": True  # Flag to indicate this is from FAQ
-            }
-            
-            # Add content warning if one was generated
-            if content_warning_for_response:
-                response_data["content_warning"] = content_warning_for_response
-            
-            # Still try to get PDF info if national_id is provided
-            if request.national_id:
-                try:
-                    policy_details = qa_system.lookup_policy_details(request.national_id)
-                    if policy_details and "primary_member" in policy_details:
-                        member = policy_details["primary_member"]
-                        if member.get("policies"):
-                            for policy in member["policies"]:
-                                if policy.get('pdf_link'):
-                                    response_data["pdf_info"] = {
-                                        "pdf_link": policy['pdf_link'],
-                                        "company_name": policy.get('company_name', 'Unknown'),
-                                        "policy_number": policy.get('policy_number', 'Unknown')
-                                    }
-                                    break
-                except Exception as e:
-                    print(f"Error getting PDF info for similar FAQ response: {str(e)}")
-            
-            return response_data
-        
-        # Step 3: No FAQ match found, proceed with normal QA system processing
-        print(f"No FAQ matches found, proceeding with normal QA system processing...")
-        
-        # Process the question (original or sanitized)
-        processed_question = question_processor.preprocess_question(user_question_to_process)
-        
-        # Prepare chat history for multi-turn
-        chat_history = request.chat_history if request.chat_history else []
-        
-        # Generate answer candidates with chat history
-        answer_candidates = question_processor.generate_answer(
-            processed_question,
+        search_result = qa_system.integrated_search(
+            question=user_question_to_process,
             national_id=request.national_id,
-            chat_history=chat_history
+            k=10
         )
         
-        response_data = {}
-        if not answer_candidates:
-            fallback = question_processor.get_fallback_response(processed_question)
-            response_data = {
-                "answer": fallback,
-                "sources": [],
-                "question_type": processed_question.question_type.value,
-                "confidence": processed_question.confidence_score,
-                "pdf_info": None
-            }
-        else:
-            best_answer = answer_candidates[0]
-            response_data = {
-                "answer": best_answer.answer,
-                "sources": best_answer.sources,
-                "question_type": processed_question.question_type.value,
-                "confidence": best_answer.confidence,
-                "explanation": best_answer.explanation,
-                "pdf_info": None
-            }
+        # Build response based on search result
+        response_data = {
+            "answer": search_result.get('answer', 'No answer found'),
+            "sources": search_result.get('sources', []),
+            "question_type": search_result.get('source_type', 'unknown'),
+            "confidence": search_result.get('confidence', 0.0),
+            "explanation": search_result.get('explanation', 'No explanation available'),
+            "pdf_info": None,
+            "is_faq": search_result.get('source_type') == 'faq'
+        }
+        
+        # Add suggested questions if available
+        if search_result.get('suggested_questions'):
+            response_data["suggested_questions"] = search_result['suggested_questions']
         
         # Add content warning if one was generated
         if content_warning_for_response:
             response_data["content_warning"] = content_warning_for_response
         
-        # Get policy details to include PDF information
+        # Try to get PDF info if national_id is provided
         if request.national_id:
             try:
                 policy_details = qa_system.lookup_policy_details(request.national_id)
@@ -413,11 +380,21 @@ async def query_endpoint(request: QueryRequest):
             except Exception as e:
                 print(f"Error getting PDF info: {str(e)}")
         
+        # Log the final response for debugging
+        print(f"✅ Response prepared - Type: {response_data['question_type']}, Confidence: {response_data['confidence']:.2f}")
+        
         return response_data
         
     except Exception as e:
-        print(f"Error processing query: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"❌ Error in query processing: {str(e)}")
+        print(f"Error type: {type(e).__name__}")
+        import traceback
+        traceback.print_exc()
+        
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Error processing your question: {str(e)}"
+        )
 
 # Add PDF serving endpoint
 class PDFRequest(BaseModel):
@@ -432,7 +409,7 @@ class PDFRequest(BaseModel):
     },
     tags=["Documents"],
     summary="Retrieve a policy document",
-    description="Fetch a PDF document using the provided link."
+    description="Fetch a PDF document using the provided link with optimized caching and streaming."
 )
 async def get_pdf(request: PDFRequest):
     try:
@@ -442,71 +419,145 @@ async def get_pdf(request: PDFRequest):
         if not request.pdf_link.lower().endswith('.pdf'):
             raise HTTPException(status_code=400, detail="Invalid file format. Only PDF files are supported")
 
-        # Create SSL context that doesn't verify certificates
-        ssl_context = ssl.create_default_context()
-        ssl_context.check_hostname = False
-        ssl_context.verify_mode = ssl.CERT_NONE
+        pdf_link = request.pdf_link.strip()
+        cache_path = get_pdf_cache_path(pdf_link)
         
-        # Create connector and session within the request for better isolation
-        connector = aiohttp.TCPConnector(ssl=ssl_context, force_close=True)
+        # Fast cache check and serve
+        if cache_path.exists():
+            print(f"✅ Serving from cache: {pdf_link}")
+            return StreamingResponse(
+                open(cache_path, 'rb'),
+                media_type='application/pdf',
+                headers={
+                    'Content-Disposition': 'inline',
+                    'filename': pdf_link.split('/')[-1],
+                    'Content-Length': str(cache_path.stat().st_size),
+                    'Cache-Control': 'public, max-age=86400'  # 24 hour cache
+                }
+            )
         
-        async with aiohttp.ClientSession(connector=connector) as session:
-            try:
-                async with session.get(request.pdf_link) as response:
-                    if response.status == 404:
-                        raise HTTPException(
-                            status_code=404,
-                            detail="PDF document not found. The file may have been moved or deleted."
-                        )
-                    elif response.status == 403:
-                        raise HTTPException(
-                            status_code=403,
-                            detail="Access to this PDF document is forbidden. Please check your permissions."
-                        )
-                    elif response.status != 200:
-                        raise HTTPException(
-                            status_code=response.status,
-                            detail=f"Failed to access PDF document. Server returned status code: {response.status}"
-                        )
-                    
-                    content_type = response.headers.get('content-type', '')
-                    if 'application/pdf' not in content_type.lower():
-                        raise HTTPException(
-                            status_code=400,
-                            detail="The requested file is not a valid PDF document"
-                        )
-                        
-                    pdf_content = await response.read()
-                    if not pdf_content:
-                        raise HTTPException(
-                            status_code=404, # Or perhaps 500 if content is expected but empty
-                            detail="The PDF document appears to be empty"
-                        )
-                        
-                    return StreamingResponse(
-                        io.BytesIO(pdf_content),
-                        media_type='application/pdf',
-                        headers={
-                            'Content-Disposition': 'inline',
-                            'filename': request.pdf_link.split('/')[-1]
-                        }
-                    )
-                    
-            except aiohttp.ClientError as e:
-                # General client error (includes connection issues, SSL errors before response, etc.)
-                print(f"AIOHTTP ClientError accessing PDF {request.pdf_link}: {str(e)}")
-                raise HTTPException(
-                    status_code=502, # 502 Bad Gateway is often more appropriate for upstream errors
-                    detail=f"Failed to access PDF document: An external error occurred."
-                )
+        print(f"📥 Downloading and caching: {pdf_link}")
+        
+        # Get optimized session with connection pooling
+        session = await get_pdf_session()
+        
+        try:
+            # Start download with optimized settings
+            async with session.get(
+                pdf_link,
+                timeout=aiohttp.ClientTimeout(total=30, connect=5)  # Shorter timeouts
+            ) as response:
                 
-    except HTTPException: # Re-raise HTTPExceptions directly
+                # Quick status validation
+                if response.status != 200:
+                    status_messages = {
+                        404: "PDF document not found",
+                        403: "Access forbidden - check permissions", 
+                        500: "Server error accessing PDF",
+                        503: "PDF service temporarily unavailable"
+                    }
+                    message = status_messages.get(response.status, f"HTTP {response.status}")
+                    raise HTTPException(status_code=response.status, detail=message)
+                
+                # Quick content type check
+                content_type = response.headers.get('content-type', '').lower()
+                if 'pdf' not in content_type and 'application/octet-stream' not in content_type:
+                    raise HTTPException(
+                        status_code=400, 
+                        detail="Invalid content type - not a PDF document"
+                    )
+                
+                # Size check for very large files
+                content_length = response.headers.get('content-length')
+                if content_length and int(content_length) > 100 * 1024 * 1024:  # 100MB limit
+                    raise HTTPException(
+                        status_code=413, 
+                        detail="PDF file too large (max 100MB)"
+                    )
+                
+                # Optimized streaming with concurrent caching
+                filename = pdf_link.split('/')[-1]
+                
+                async def stream_and_cache():
+                    """Stream to client while simultaneously caching to disk"""
+                    cache_data = bytearray()  # Use bytearray for efficient appending
+                    total_size = 0
+                    
+                    try:
+                        # Create cache directory if needed
+                        cache_path.parent.mkdir(exist_ok=True)
+                        
+                        # Open cache file for writing
+                        cache_file = open(cache_path, 'wb')
+                        
+                        try:
+                            # Stream in larger chunks for better performance
+                            async for chunk in response.content.iter_chunked(32768):  # 32KB chunks
+                                if not chunk:
+                                    break
+                                
+                                total_size += len(chunk)
+                                
+                                # Write to cache file immediately
+                                cache_file.write(chunk)
+                                cache_file.flush()  # Ensure data is written
+                                
+                                # Yield to client
+                                yield chunk
+                                
+                        finally:
+                            cache_file.close()
+                            
+                        print(f"✅ Cached {total_size:,} bytes to {cache_path}")
+                        
+                    except Exception as cache_error:
+                        print(f"⚠️ Cache error (continuing stream): {cache_error}")
+                        # Remove partial cache file on error
+                        try:
+                            if cache_path.exists():
+                                cache_path.unlink()
+                        except:
+                            pass
+                        
+                        # Continue streaming even if caching fails
+                        if total_size == 0:  # No data streamed yet
+                            async for chunk in response.content.iter_chunked(32768):
+                                if chunk:
+                                    yield chunk
+                
+                # Return streaming response with optimized headers
+                return StreamingResponse(
+                    stream_and_cache(),
+                    media_type='application/pdf',
+                    headers={
+                        'Content-Disposition': f'inline; filename="{filename}"',
+                        'Cache-Control': 'public, max-age=86400',  # 24 hour browser cache
+                        'Accept-Ranges': 'bytes',  # Enable partial requests
+                        'X-Content-Type-Options': 'nosniff',
+                        'Content-Length': content_length if content_length else None
+                    }
+                )
+                    
+        except aiohttp.ClientError as e:
+            print(f"❌ Network error for {pdf_link}: {e}")
+            raise HTTPException(
+                status_code=502,
+                detail="Network error accessing PDF - please try again"
+            )
+        except asyncio.TimeoutError:
+            print(f"⏱️ Timeout accessing {pdf_link}")
+            raise HTTPException(
+                status_code=504,
+                detail="Request timeout - PDF server is slow"
+            )
+                
+    except HTTPException:
         raise
     except Exception as e:
-        print(f"Unexpected error accessing PDF {request.pdf_link}: {str(e)}")
+        print(f"💥 Unexpected error for {pdf_link}: {e}")
         raise HTTPException(
             status_code=500,
-            detail=f"An unexpected error occurred while accessing the PDF document."
+            detail="Internal server error accessing PDF"
         )
 
 # Add this new route to your existing FastAPI app

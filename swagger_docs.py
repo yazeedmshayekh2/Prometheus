@@ -434,7 +434,7 @@ class ErrorResponse(BaseModel):
     """
     Model for error responses
     """
-    detail: str
+    detail: str 
 
     class Config:
         schema_extra = {

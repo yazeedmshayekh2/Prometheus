@@ -1060,7 +1060,7 @@ class InsuranceAssistant {
                 
                 // Only update beneficiary count if we don't have family data already set
                 if (!this.familyData) {
-                    this.beneficiaryCount.textContent = info.family_count || info.beneficiary_count || info.members_count || '-';
+                this.beneficiaryCount.textContent = info.family_count || info.beneficiary_count || info.members_count || '-';
                 }
 
             } catch (e) {
@@ -1081,7 +1081,7 @@ class InsuranceAssistant {
         this.expiryDate.textContent = '-';
         // Only clear beneficiary count if we don't have family data
         if (!this.familyData) {
-            this.beneficiaryCount.textContent = '-';
+        this.beneficiaryCount.textContent = '-';
         }
     }
 
@@ -1321,7 +1321,7 @@ class InsuranceAssistant {
                 
                 // Only update beneficiary count if we don't have family data already set
                 if (!this.familyData) {
-                    this.beneficiaryCount.textContent = info.family_count || info.beneficiary_count || info.members_count || '-';
+                this.beneficiaryCount.textContent = info.family_count || info.beneficiary_count || info.members_count || '-';
                 }
 
             } catch (e) {
@@ -1342,7 +1342,7 @@ class InsuranceAssistant {
         this.expiryDate.textContent = '-';
         // Only clear beneficiary count if we don't have family data
         if (!this.familyData) {
-            this.beneficiaryCount.textContent = '-';
+        this.beneficiaryCount.textContent = '-';
         }
     }
 
@@ -2455,8 +2455,8 @@ class InsuranceAssistant {
             text = text.replace(/(\s)(\d+\.)(?!\d)/g, '\n$2');
 
             let ttsText = text
-            .split('\n')
-            .map((line, i, arr) => {
+                .split('\n')
+                .map((line, i, arr) => {
                 let trimmed = line.trim();
                 const isSingleBullet = /^([*•✓])(?![*•✓])/.test(trimmed);
                 const isNumberedItem = /^(\d+\.)(?!\d)/.test(trimmed);
@@ -2469,7 +2469,7 @@ class InsuranceAssistant {
                     return line.replace(/^\s*([*•✓])(?![*•✓])\s*/, 'First, ');
                 } else if (!nextIsBullet) {
                     return line.replace(/^\s*([*•✓])(?![*•✓])\s*/, 'Finally, ');
-                } else {
+                        } else {
                     return line.replace(/^\s*([*•✓])(?![*•✓])\s*/, 'Then, ');
                 }
                 }
@@ -2486,11 +2486,11 @@ class InsuranceAssistant {
                     const ordinal = ordinals[num - 1] || `Number ${num}`;
                     
                     return line.replace(/^\s*(\d+\.)(?!\d)\s*/, `${ordinal}, `);
-                }
-                }
+                        }
+                    }
                 
-                return line;
-            })
+                    return line;
+                })
             .join(' ')
             .replace(/✅/g, 'Great news! ');
 
@@ -2798,7 +2798,7 @@ class InsuranceAssistant {
                 if (line.trim().startsWith('• ')) {
                     doc.text(line, margin + 10, yPosition); // Indent bullet points
                 } else {
-                    doc.text(line, margin, yPosition);
+                doc.text(line, margin, yPosition);
                 }
                 yPosition += lineHeight;
             });

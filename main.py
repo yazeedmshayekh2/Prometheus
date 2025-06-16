@@ -4570,7 +4570,7 @@ ANSWER:
             print(f"Starting integrated search for: {question[:50]}...")
             
             # Step 1: Search FAQ collection with semantic similarity (UNCHANGED)
-            faq_results = self.search_faq_semantic(question, k=5, similarity_threshold=0.85)  # High threshold for FAQ matches
+            faq_results = self.search_faq_semantic(question, k=5, similarity_threshold=0.75)  # High threshold for FAQ matches
             
             if faq_results:
                 # Found good FAQ match - now enhance it with LLM-generated detailed response

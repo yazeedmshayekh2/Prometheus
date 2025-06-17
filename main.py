@@ -2620,7 +2620,8 @@ Please give a short succinct context to situate this chunk within the overall do
                     client=self.qdrant_client,
                     collection_name=FAQ_COLLECTION_NAME,
                     embedding=self.faq_embeddings,
-                    distance=Distance.COSINE
+                    distance=Distance.COSINE,
+                    force_recreate=True
                 )
                 print("Both vector stores reinitialized after recreation")
             except Exception as recreate_error:
@@ -4479,6 +4480,29 @@ ANSWER:
         """Search for similar FAQ questions using semantic similarity with high threshold"""
         try:
             print(f"Searching FAQ collection for: {question[:50]}... (threshold: {similarity_threshold})")
+            
+                        # Search FAQ vector store - get more results to find the best match
+            try:
+                collection_info = self.qdrant_client.get_collection(FAQ_COLLECTION_NAME)
+                if collection_info.points_count == 0:
+                    print("FAQ collection is empty. Attempting to index FAQ data...")
+                    if self.index_faq_data():
+                        # refresh collection info after indexing
+                        collection_info = self.qdrant_client.get_collection(FAQ_COLLECTION_NAME)
+                        print(f"Indexed FAQ collection now has {collection_info.points_count} vectors")
+                    else:
+                        print("Failed to index FAQ data. Returning no results.")
+                        return []
+            except Exception as e:
+                print(f"Error checking FAQ collection: {e}. Attempting to create & index...")
+                # Attempt to create collection and index data
+                try:
+                    self._initialize_vector_store()  # recreate the store if missing
+                    if not self.index_faq_data():
+                        return []
+                except Exception as inner_e:
+                    print(f"Failed to recover FAQ collection: {inner_e}")
+                    return []
             
             # Search FAQ vector store - get more results to find the best match
             results = self.faq_vector_store.similarity_search_with_score(

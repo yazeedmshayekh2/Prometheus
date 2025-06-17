@@ -11,6 +11,12 @@ class InsuranceAssistant {
 
         console.log('InsuranceAssistant constructor starting');
         
+        // Arabic text configuration
+        this.arabicConfig = {
+            fontSize: '11pt',
+            fontFamily: localStorage.getItem('arabicFont') || 'Arial' // Default font, can be changed
+        };
+        
         // Chat elements
         this.chatContainer = document.querySelector('.chatcontainer');
         this.textArea = document.querySelector('.textChat textarea');
@@ -368,9 +374,19 @@ class InsuranceAssistant {
         contentWrapper.className = 'message-content';
 
         // Set content with proper formatting
-        contentWrapper.innerHTML = role === 'assistant' 
-            ? this.basicMarkdownToHtml(content)  // Step 1: Basic markdown (bold only)
+        const formattedContent = role === 'assistant' 
+            ? this.basicMarkdownToHtml(content)
             : this.escapeHtml(content);
+
+        // Check if content is Arabic for user messages
+        if (role === 'user' && this.isArabicText(content)) {
+            contentWrapper.style.textAlign = 'right';
+            contentWrapper.style.direction = 'rtl';
+            contentWrapper.style.fontSize = this.arabicConfig.fontSize;
+            contentWrapper.style.fontFamily = this.arabicConfig.fontFamily;
+        }
+
+        contentWrapper.innerHTML = formattedContent;
 
         // Add content to message div
         messageDiv.appendChild(contentWrapper);
@@ -534,7 +550,10 @@ class InsuranceAssistant {
     basicMarkdownToHtml(markdown) {
         if (!markdown) return '';
     
-        // Step 1: Escape HTML
+        // Step 1: Detect if text is Arabic
+        const isArabic = this.isArabicText(markdown);
+        
+        // Step 2: Escape HTML
         let html = markdown
             .replace(/&/g, '&amp;')
             .replace(/</g, '&lt;')
@@ -543,49 +562,78 @@ class InsuranceAssistant {
             .replace(/'/g, '&#39;')
             .replace(/ - /g, '<li>')
     
-        // Step 2: Headers (h2 and h3 only, as per system design)
+        // Step 3: Headers (h2 and h3 only, as per system design)
         html = html
             .replace(/^### (.*?)$/gm, '<h3>$1</h3>')
             .replace(/^## (.*?)$/gm, '<h2>$1</h2>');
     
-        // Step 3: Bold formatting
+        // Step 4: Bold formatting
         html = html.replace(/(\*\*|__)(.*?)\1/g, '<strong>$2</strong>');
     
-        // Step 4: Currency and percentage formatting
+        // Step 5: Currency and percentage formatting
         html = html
             .replace(/QR\s*(\d{1,3}(?:,\d{3})*(?:\.\d+)?(?:\/-)?)/g, '<strong>QR $1</strong>')
             .replace(/(\d+(?:\.\d+)?)%/g, '<strong>$1%</strong>');
     
-        // Step 5: Numbered lists inside sentences (e.g., "Sentence. 1. Item")
-        // Replace any sentence-ending punctuation followed by numbered items
-        html = html.replace(/([ :.!?])\s*(\d+\.)\s*/g, '$1<br><li class="numbered">');
+        // Step 6: Numbered lists inside sentences
+        if (!isArabic) {
+            html = html.replace(/([ :.!?])\s*(\d+\.)\s*/g, '$1<br><li class="numbered">');
+        } else {
+            html = html.replace(/([ :.!?])\s*(\d+\.)\s*/g, '$1<li class="numbered">');
+        }
         
-        // Step 6: Bullet points inside sentences (e.g., "Sentence. • Item")
-        // Replace any sentence-ending punctuation followed by •
-        html = html.replace(/([ :.!?])\s*[•|*|✓]\s*/g, '$1<br><li>');
+        // Step 7: Bullet points inside sentences
+        if (!isArabic) {
+            html = html.replace(/([ :.!?])\s*[•|*|✓]\s*/g, '$1<br><li>');
+        } else {
+            html = html.replace(/([ :.!?])\s*[•|*|✓]\s*/g, '$1<li>');
+        }
 
-        // Step 7: Regular numbered lists at the start of lines
+        // Step 8: Regular numbered lists at the start of lines
         html = html
             .replace(/^(\d+\.)\s+(.+)$/gm, '<li class="numbered">$2.</li>');
 
-        // Step 8: Regular bullet points at the start of lines - remove bullet character
+        // Step 9: Regular bullet points at the start of lines
         html = html
             .replace(/^•\s+(.+)$/gm, '<li>$1</li>')
             .replace(/^\*\s+(.+)$/gm, '<li>$1</li>')
             .replace(/^-\s+(.+)$/gm, '<li>$1</li>');
 
-        // Step 9: Remove any remaining bullet points that might be inside li elements
+        // Step 10: Remove any remaining bullet points that might be inside li elements
         html = html.replace(/<li>•\s*/g, '<li>');
 
-        // Step 10: Wrap <li> elements in <ul>
+        // Step 11: Wrap <li> elements in <ul>
         html = this.wrapListItems(html);
 
-        // Step 11: Line breaks
-        html = html.replace(/\n/g, '<br>');
+        // Step 12: Line breaks - handle differently for Arabic
+        if (!isArabic) {
+            html = html.replace(/\n/g, '<br>');
+        } else {
+            // For Arabic, only add line breaks between paragraphs (double newlines)
+            html = html.replace(/\n\n+/g, '<br>').replace(/\n/g, ' ');
+        }
+
+        // Step 13: Add text alignment and styling based on language
+        if (isArabic) {
+            html = `<div style="text-align: right; direction: rtl; font-size: ${this.arabicConfig.fontSize}; font-family: ${this.arabicConfig.fontFamily};">${html}</div>`;
+        }
 
         return html;
     }
-    
+
+    isArabicText(text) {
+        // Arabic Unicode range: [\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]
+        const arabicPattern = /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/;
+        
+        // Check if the text contains Arabic characters
+        // Only consider it Arabic if more than 30% of the non-whitespace characters are Arabic
+        const nonWhitespace = text.replace(/\s/g, '');
+        const arabicMatches = nonWhitespace.match(new RegExp(arabicPattern, 'g'));
+        
+        if (!arabicMatches) return false;
+        
+        return (arabicMatches.length / nonWhitespace.length) > 0.3;
+    }
 
     wrapListItems(html) {
         // Split by <br> to process line by line
@@ -3114,6 +3162,45 @@ class InsuranceAssistant {
             const action = archived ? 'archive' : 'unarchive';
             this.showToast(`Failed to ${action} conversation`, 'error');
         }
+    }
+
+    // Add method to change Arabic font
+    setArabicFont(fontFamily) {
+        this.arabicConfig.fontFamily = fontFamily;
+        localStorage.setItem('arabicFont', fontFamily);
+        // Refresh existing messages if needed
+        this.refreshChatMessages();
+    }
+
+    // Add method to refresh chat messages when font changes
+    refreshChatMessages() {
+        if (!this.chatContainer || !this.chatHistory) return;
+        
+        // Store the scroll position
+        const scrollPos = this.chatContainer.scrollTop;
+        
+        // Clear and rebuild messages
+        this.chatContainer.innerHTML = '';
+        this.chatHistory.forEach(msg => {
+            this.addMessageToChat(msg.role, msg.content, false); // false to prevent saving again
+        });
+        
+        // Restore scroll position
+        this.chatContainer.scrollTop = scrollPos;
+    }
+
+    // Add method to get available Arabic fonts
+    getAvailableArabicFonts() {
+        return [
+            'Arial',
+            'Tahoma',
+            'Dubai',
+            'Amiri',
+            'Scheherazade',
+            'Noto Naskh Arabic',
+            'Traditional Arabic',
+            'Simplified Arabic'
+        ];
     }
 }
 

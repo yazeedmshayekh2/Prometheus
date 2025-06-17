@@ -57,7 +57,7 @@ QDRANT_PATH = INDICES_DIR / "qdrant_storage"
 COLLECTION_NAME = "insurance_docs"
 FAQ_COLLECTION_NAME = "faq_docs"  # New FAQ collection
 VECTOR_SIZE = 768
-FAQ_VECTOR_SIZE = 768  # Multilingual model also has 768 dimensions
+FAQ_VECTOR_SIZE = 768  # Fine-tuned multilingual model (768 dimensions)
 
 class State(TypedDict):
     messages: Annotated[List[BaseMessage], "Chat message history"]
@@ -76,7 +76,7 @@ class InsuranceQueryResult(BaseModel):
     class Config:
         schema_extra = {
             "example": {
-                "coverage_status": "Yes, dental treatment is covered",
+                "coverage_status": "Dental treatment is covered",
                 "coverage_details": ["Basic dental procedures covered", "Annual checkups included"],
                 "limitations": ["Pre-approval required for major procedures"],
                 "amounts": [{"annual_limit": 2000.0}],
@@ -195,20 +195,20 @@ class DocumentChunk(BaseModel):
         return self.metadata.get(key, default)
 
 class LlamaModelWrapper(BaseChatModel):
-    """Wrapper for Meta-Llama-3.1-8B-Instruct-AWQ-INT4 model with optimized performance"""
-    model: Any = Field(default=None, description="Llama Model")
+    """Wrapper for Qwen3 model with optimized performance"""
+    model: Any = Field(default=None, description="Qwen3 Model")
     tokenizer: Any = Field(default=None, description="Tokenizer")
-    model_id: str = Field(default="hugging-quants/Meta-Llama-3.1-8B-Instruct-AWQ-INT4", description="Model ID")
+    model_id: str = Field(default="Qwen/Qwen3-8B-AWQ", description="Model ID")
     device: str = Field(default="cuda" if torch.cuda.is_available() else "cpu", description="Device to run model on")
     
     class Config:
         arbitrary_types_allowed = True
     
     def __init__(self, **kwargs):
-        """Initialize the Llama model with AWQ quantization for optimal performance"""
+        """Initialize the Qwen model with AWQ quantization for optimal performance"""
         super().__init__(**kwargs)
         if self.model is None or self.tokenizer is None:
-            print(f"Loading Meta-Llama-3.1-8B-Instruct-AWQ-INT4 model: {self.model_id}")
+            print(f"Loading Qwen3-8B-AWQ model: {self.model_id}")
             try:
                 # Verify CUDA availability - AWQ requires CUDA
                 if not torch.cuda.is_available():
@@ -283,14 +283,14 @@ class LlamaModelWrapper(BaseChatModel):
                 
                 # Set to eval mode for inference
                 self.model.eval()
-                print(f"Meta-Llama-3.1-8B-Instruct-AWQ-INT4 model loaded successfully on CUDA")
+                print(f"Qwen3-8B-AWQ model loaded successfully on CUDA")
                 
             except Exception as e:
-                print(f"Error loading Llama model: {str(e)}")
+                print(f"Error loading Qwen3 model: {str(e)}")
                 raise
 
     def _generate_text(self, prompt: str, max_tokens: int = 32768, temperature: float = 0.3) -> str:
-        """Generate text with optimized Llama 3.1 performance"""
+        """Generate text with optimized Qwen3 performance"""
         try:
             # Create system message for insurance expertise
             messages = [
@@ -308,20 +308,21 @@ class LlamaModelWrapper(BaseChatModel):
             text = self.tokenizer.apply_chat_template(
                 messages,
                 tokenize=False,
-                add_generation_prompt=True
+                add_generation_prompt=True,
+                enable_thinking=False
             )
             
             # Tokenize
             model_inputs = self.tokenizer([text], return_tensors="pt").to(self.model.device)
             
-            # Generate with optimized parameters for Llama
+            # Generate with optimized parameters for Qwen3
             with torch.no_grad():
                 generated_ids = self.model.generate(
                     **model_inputs,
                     max_new_tokens=max_tokens,
                     temperature=temperature,
-                    top_p=0.9,        # Optimized for Llama
-                    top_k=50,         # Optimized for Llama
+                    top_p=0.9,        # Optimized for Qwen3
+                    top_k=50,         # Optimized for Qwen3
                     do_sample=True,
                     repetition_penalty=1.1,
                     pad_token_id=self.tokenizer.pad_token_id,
@@ -609,13 +610,16 @@ class DocumentQASystem:
         )
         print("Policy documents embeddings initialized")
         
-        # Multilingual embeddings for FAQ documents (Arabic + English support)
+        # Fine-tuned FAQ embeddings (Arabic + English support)
+        # Updated to use locally fine-tuned model for improved FAQ performance
+        # Performance improvements: 14.7% better correlation, 34.1% lower MAE
+        # Model trained on 699 FAQ pairs with Qwen-generated alternatives
         self.faq_embeddings = HuggingFaceEmbeddings(
-            model_name="sentence-transformers/paraphrase-multilingual-mpnet-base-v2",
+            model_name="./finetuned_faq_model_v1",  # Use local fine-tuned model
             cache_folder='./hf_cache',
             encode_kwargs={'normalize_embeddings': True}
         )
-        print("FAQ multilingual embeddings initialized")
+        print("FAQ fine-tuned embeddings initialized from local model")
 
     def _initialize_database(self, db_connection_string: Optional[str]):
         """Initialize database connection"""
@@ -710,10 +714,10 @@ class DocumentQASystem:
         """Initialize cross-encoder reranker"""
         try:
             self.reranker = AutoModelForSequenceClassification.from_pretrained(
-                "cross-encoder/ms-marco-MiniLM-L-6-v2"
+                "cross-encoder/ms-marco-electra-base"
             ).to(self.device)
             self.rerank_tokenizer = AutoTokenizer.from_pretrained(
-                "cross-encoder/ms-marco-MiniLM-L-6-v2"
+                "cross-encoder/ms-marco-electra-base"
             )
             print("Cross-encoder reranker initialized")
         except Exception as e:
@@ -2620,8 +2624,7 @@ Please give a short succinct context to situate this chunk within the overall do
                     client=self.qdrant_client,
                     collection_name=FAQ_COLLECTION_NAME,
                     embedding=self.faq_embeddings,
-                    distance=Distance.COSINE,
-                    force_recreate=True
+                    distance=Distance.COSINE
                 )
                 print("Both vector stores reinitialized after recreation")
             except Exception as recreate_error:
@@ -2629,7 +2632,7 @@ Please give a short succinct context to situate this chunk within the overall do
 
     def _initialize_ivf_index(self):
         """Initialize the IVF index for fast similarity search"""
-        try:
+        try:    
             # Check if we have vectors to index
             if hasattr(self, 'vectors_cache') and self.vectors_cache:
                 print("Initializing IVF index...")
@@ -3927,6 +3930,7 @@ POLICY INFORMATION:
 Question: {question}
 
 INSTRUCTIONS:
+- If the question is not related to the policy, say "I'm sorry, I can only answer questions about the policy."
 - Start with a direct answer to the user's question in the first sentence
 - Use simple, everyday language that anyone can understand
 - Focus on what IS covered and what the user CAN do
@@ -3936,9 +3940,9 @@ INSTRUCTIONS:
 - Use 'hospital stays' instead of 'inpatient' and 'clinic visits' instead of 'outpatient'
 
 STRUCTURE TEMPLATE:
-1. Direct answer (1–2 short sentences) - state YES/NO and main benefit
+1. Direct answer (1–2 short sentences)
 2. Bullet list of key details (use • character) - each point should be unique
-3. If needed, a short explanation of any technical terms in simple language
+3. If needed, a short explanation of any technical terms in simple language in a new paragraph
 
 FORMATTING:
 - Format amounts as **QR X,XXX** and percentages as **XX%**
@@ -3948,10 +3952,10 @@ FORMATTING:
 - Group similar information into single bullet points
 
 EXAMPLE OF GOOD FORMATTING:
-"Yes, dental treatment is covered under your policy.
+Dental treatment is covered under your policy.
 • Basic procedures like cleanings and fillings are fully covered
 • Major work like crowns requires **20%** coinsurance up to **QR 5,000** annually
-• All treatments need pre-approval except routine checkups"
+• All treatments need pre-approval except routine checkups
 
 ANSWER:
 """
@@ -4492,7 +4496,7 @@ ANSWER:
                         print(f"Indexed FAQ collection now has {collection_info.points_count} vectors")
                     else:
                         print("Failed to index FAQ data. Returning no results.")
-                        return []
+                        return []   
             except Exception as e:
                 print(f"Error checking FAQ collection: {e}. Attempting to create & index...")
                 # Attempt to create collection and index data
@@ -4594,7 +4598,7 @@ ANSWER:
             print(f"Starting integrated search for: {question[:50]}...")
             
             # Step 1: Search FAQ collection with semantic similarity (UNCHANGED)
-            faq_results = self.search_faq_semantic(question, k=5, similarity_threshold=0.75)  # High threshold for FAQ matches
+            faq_results = self.search_faq_semantic(question, k=5, similarity_threshold=0.8)  # High threshold for FAQ matches
             
             if faq_results:
                 # Found good FAQ match - now enhance it with LLM-generated detailed response
@@ -4673,7 +4677,7 @@ ANSWER:
             
             # Final fallback
             return {
-                'answer': "I couldn't find specific information about this in either the FAQ database or policy documents. Could you please rephrase your question or provide more details?",
+                'answer': self._generate_fallback_response(question),
                 'source_type': 'none',
                 'confidence': 0.0,
                 'sources': [],
@@ -4715,6 +4719,7 @@ Answer: {faq_answer}
 
 INSTRUCTIONS:
 1. Start with a direct answer to the user's specific question
+2. If the question is not related to the retrieved FAQ questions or the document information, return "I'm sorry, I can't answer that question."
 2. Include all information from the FAQ answer
 3. Add relevant context and details that would be helpful for this specific question
 4. Explain any technical terms or processes mentioned
@@ -4782,5 +4787,52 @@ ENHANCED ANSWER:"""
         except Exception as e:
             print(f"Error getting related FAQ questions: {str(e)}")
             return []
+
+    def _generate_fallback_response(self, question: str) -> str:
+        """
+        Generate a helpful fallback response when no FAQ or policy document match is found.
+        """
+        try:
+            # Create a prompt to analyze the question and generate a helpful response
+            analysis_prompt = f"""Analyze this insurance-related question and generate a helpful response when we don't have an exact answer in our database.
+
+QUESTION: {question}
+
+INSTRUCTIONS:
+1. Identify the main topic/intent of the question (keep it brief)
+2. Suggest 2-3 alternative ways to ask the question (max 10 words each)
+3. Suggest 2-3 related topics they might want to ask about (max 8 words each)
+4. Keep all suggestions clear and concise
+5. Do not use any special characters or formatting
+6. Do not mention anything about contacting support or phone numbers
+
+FORMAT YOUR RESPONSE LIKE THIS:
+I understand you're asking about [brief topic]. While I don't have specific information about this in my database, I'd like to help you get the information you need.
+
+Try rephrasing your question:
+[Short rephrasing 1]
+[Short rephrasing 2]
+[Short rephrasing 3]
+
+You might also be interested in:
+[Brief related topic 1]
+[Brief related topic 2]
+[Brief related topic 3]
+
+GENERATE RESPONSE:"""
+
+            # Generate the fallback response
+            fallback_response = self.llm._generate_text(
+                analysis_prompt,
+                max_tokens=300,  # Reduced from 400 to encourage brevity
+                temperature=0.3
+            )
+
+            return fallback_response.strip()
+
+        except Exception as e:
+            print(f"Error generating fallback response: {str(e)}")
+            # Return a simple fallback if something goes wrong
+            return "I couldn't find specific information about this in my database. Could you please rephrase your question?"
 
 

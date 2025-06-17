@@ -185,7 +185,7 @@ class InsuranceAssistant {
         this.currentNationalId = nationalId;
         
             // Add confirmation message to chat
-            this.addMessageToChat('assistant', 'ID verified successfully. How can I help you with your policy today?');
+            this.addMessageToChat('assistant', '✅ ID verified successfully. How can I help you with your policy today?');
             
             // Update textarea placeholder
             if (this.textArea) {
@@ -540,41 +540,47 @@ class InsuranceAssistant {
             .replace(/</g, '&lt;')
             .replace(/>/g, '&gt;')
             .replace(/"/g, '&quot;')
-            .replace(/'/g, '&#39;');
+            .replace(/'/g, '&#39;')
+            .replace(/ - /g, '<li>')
     
-        // Step 2: Bold formatting
+        // Step 2: Headers (h2 and h3 only, as per system design)
+        html = html
+            .replace(/^### (.*?)$/gm, '<h3>$1</h3>')
+            .replace(/^## (.*?)$/gm, '<h2>$1</h2>');
+    
+        // Step 3: Bold formatting
         html = html.replace(/(\*\*|__)(.*?)\1/g, '<strong>$2</strong>');
     
-        // Step 3: Currency and percentage formatting
+        // Step 4: Currency and percentage formatting
         html = html
             .replace(/QR\s*(\d{1,3}(?:,\d{3})*(?:\.\d+)?(?:\/-)?)/g, '<strong>QR $1</strong>')
             .replace(/(\d+(?:\.\d+)?)%/g, '<strong>$1%</strong>');
     
-        // Step 4: Numbered lists inside sentences (e.g., "Sentence. 1. Item")
+        // Step 5: Numbered lists inside sentences (e.g., "Sentence. 1. Item")
         // Replace any sentence-ending punctuation followed by numbered items
         html = html.replace(/([ :.!?])\s*(\d+\.)\s*/g, '$1<br><li class="numbered">');
         
-        // Step 5: Bullet points inside sentences (e.g., "Sentence. • Item")
+        // Step 6: Bullet points inside sentences (e.g., "Sentence. • Item")
         // Replace any sentence-ending punctuation followed by •
         html = html.replace(/([ :.!?])\s*[•|*|✓]\s*/g, '$1<br><li>');
 
-        // Step 6: Regular numbered lists at the start of lines
+        // Step 7: Regular numbered lists at the start of lines
         html = html
             .replace(/^(\d+\.)\s+(.+)$/gm, '<li class="numbered">$2.</li>');
 
-        // Step 7: Regular bullet points at the start of lines - remove bullet character
+        // Step 8: Regular bullet points at the start of lines - remove bullet character
         html = html
             .replace(/^•\s+(.+)$/gm, '<li>$1</li>')
             .replace(/^\*\s+(.+)$/gm, '<li>$1</li>')
             .replace(/^-\s+(.+)$/gm, '<li>$1</li>');
 
-        // Step 8: Remove any remaining bullet points that might be inside li elements
+        // Step 9: Remove any remaining bullet points that might be inside li elements
         html = html.replace(/<li>•\s*/g, '<li>');
 
-        // Step 9: Wrap <li> elements in <ul>
+        // Step 10: Wrap <li> elements in <ul>
         html = this.wrapListItems(html);
 
-        // Step 10: Line breaks
+        // Step 11: Line breaks
         html = html.replace(/\n/g, '<br>');
 
         return html;
@@ -730,8 +736,8 @@ class InsuranceAssistant {
         html = result.join('\n')
             // Clean up empty paragraphs and fix nested paragraphs
             .replace(/<p>\s*<\/p>/g, '')
-            .replace(/<p>(\s*<(?:ul|li|h[2-3]|hr)>)/g, '$1')
-            .replace(/(<\/(?:ul|li|h[2-3]|hr)>\s*)<\/p>/g, '$1')
+            .replace(/<p>(\s*<(?:ul|li|h[1-6]|hr)>)/g, '$1')
+            .replace(/(<\/(?:ul|li|h[1-6]|hr)>\s*)<\/p>/g, '$1')
             
             // Fix line breaks
             .replace(/\n/g, '<br>');

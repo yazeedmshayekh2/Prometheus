@@ -38,3 +38,8 @@ indices/
 Thumbs.db
 
 *.mdc
+
+finetuned_faq_model_v1/
+faq_training_data/
+
+*.log

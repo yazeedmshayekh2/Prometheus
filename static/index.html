@@ -21,6 +21,7 @@
     <!-- Sidebar -->
     <div class="sidebar-hover-area"></div>
     <div class="sidebar">
+        <div class="user-name"></div>
         <button class="new-chat-btn" onclick="window.insuranceAssistant.startNewConversation()">+ New Chat</button>
         <div class="archive-toggle">
             <input type="checkbox" id="showArchived" onchange="window.insuranceAssistant.loadConversations(this.checked)">
@@ -30,7 +31,6 @@
             <!-- Conversations will be populated by JavaScript -->
         </div>
         <div class="user-info">
-            <div class="user-name"></div>
             <button class="logout-btn" onclick="Auth.logout()">Logout</button>
         </div>
     </div>

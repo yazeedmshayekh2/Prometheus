@@ -73,12 +73,14 @@ class TTSRequest(BaseModel):
     """
     text: str
     voice: str = "af_bella"
+    provider: str = "kokoro"
 
     class Config:
         schema_extra = {
             "example": {
                 "text": "Hello, this is a test message for text-to-speech conversion.",
-                "voice": "af_bella"
+                "voice": "af_bella",
+                "provider": "kokoro"
             }
         }
 

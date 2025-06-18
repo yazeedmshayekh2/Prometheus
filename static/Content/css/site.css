@@ -69,12 +69,42 @@ strong{
     border: 1px solid #e9e8e8;
     border-radius: 1.25rem;
     margin-top: 5px;
+    margin-bottom: 8px;
     font-size: 9pt;
     padding: 20px;
 }
 
 .textChat textarea:hover, .textChat textarea:focus, .textChat textarea::selection {
     border: 1px solid #e9e8e8;
+}
+
+/* Button container for voice and send buttons */
+.textChat .button-container {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    justify-content: flex-end;
+}
+
+.textChat #voiceSettingsBtn {
+    background-color: #f8f9fa;
+    border: 1px solid #dee2e6;
+    color: #495057;
+    font-size: 8pt;
+    padding: 8px 12px;
+    border-radius: 1rem;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+}
+
+.textChat #voiceSettingsBtn:hover {
+    background-color: #e9ecef;
+    border-color: #adb5bd;
+    transform: translateY(-1px);
+}
+
+.textChat #voiceSettingsBtn:active {
+    transform: translateY(0);
 }
 
 .chatcontainer {
@@ -556,6 +586,23 @@ strong{
         margin: 0 auto;
         margin-top: 20px;
     }
+
+    /* Mobile voice settings button adjustments */
+    .textChat .button-container {
+        flex-direction: column;
+        gap: 8px;
+        align-items: stretch;
+    }
+
+    .textChat #voiceSettingsBtn {
+        order: 2;
+        font-size: 9pt;
+        padding: 10px;
+    }
+
+    .textChat .btnSend {
+        order: 1;
+    }
 }
 
 /* Loading indicator styling */
@@ -1021,7 +1068,7 @@ strong{
     text-align: center;
     font-weight: 500;
     margin-bottom: 10px;
-    margin-top: 10px;
+    margin-top: 15px;
     letter-spacing: 0.5px;
 }
 

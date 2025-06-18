@@ -17,6 +17,13 @@ class InsuranceAssistant {
             fontFamily: localStorage.getItem('arabicFont') || 'Arial' // Default font, can be changed
         };
         
+        // TTS Configuration
+        this.ttsConfig = {
+            provider: localStorage.getItem('ttsProvider') || 'kokoro',
+            voice: localStorage.getItem('ttsVoice') || 'sarah',
+            availableVoices: null
+        };
+        
         // Chat elements
         this.chatContainer = document.querySelector('.chatcontainer');
         this.textArea = document.querySelector('.textChat textarea');
@@ -55,6 +62,7 @@ class InsuranceAssistant {
         // Initialize
         this.setupEventListeners();
         this.initializeChat();
+        this.loadTTSVoices(); // Load available TTS voices
         
         console.log('InsuranceAssistant initialized with elements:', {
             chatContainer: !!this.chatContainer,
@@ -74,18 +82,18 @@ class InsuranceAssistant {
                     // Only allow numbers and limit to 11 digits for National ID
                     const numbersOnly = e.target.value.replace(/\D/g, '');
                     if (numbersOnly !== e.target.value) {
-                e.target.value = numbersOnly;
-            }
+                        e.target.value = numbersOnly;
+                    }
                     if (numbersOnly.length > 11) {
                         e.target.value = numbersOnly.slice(0, 11);
-                }
+                    }
                 }
                 this.updateSendButtonState();
-        });
-        
+            });
+            
             this.textArea.addEventListener('keypress', async (e) => {
                 if (e.key === 'Enter' && !e.shiftKey && !this.isLoading) {
-                e.preventDefault();
+                    e.preventDefault();
                     await this.handleSendMessage();
                 }
             });
@@ -98,6 +106,14 @@ class InsuranceAssistant {
                 if (!this.isLoading) {
                     await this.handleSendMessage();
                 }
+            });
+        }
+
+        // Voice settings button handler
+        const voiceSettingsBtn = document.getElementById('voiceSettingsBtn');
+        if (voiceSettingsBtn) {
+            voiceSettingsBtn.addEventListener('click', () => {
+                this.toggleVoiceSelector();
             });
         }
 
@@ -457,6 +473,28 @@ class InsuranceAssistant {
                 actionBar.appendChild(audioButton);
                 actionBar.appendChild(likeButton);
                 actionBar.appendChild(dislikeButton);
+
+                // Add voice settings button
+                const voiceButton = document.createElement('button');
+                voiceButton.className = 'btn btn-outline-secondary btn-sm';
+                voiceButton.title = 'Voice Settings';
+                voiceButton.style.cssText = `
+                    background-color: #f8f9fa;
+                    border: 1px solid #dee2e6;
+                    color: #495057;
+                    font-size: 8pt;
+                    padding: 8px 12px;
+                    border-radius: 1rem;
+                    transition: all 0.2s ease;
+                    white-space: nowrap;
+                    min-width: 80px;
+                `;
+                voiceButton.innerHTML = '🎵 Voice';
+                voiceButton.onclick = (e) => {
+                    e.stopPropagation();
+                    this.toggleVoiceSelector();
+                };
+                actionBar.appendChild(voiceButton);
                 
                 // Add action bar to the wrapper
                 messageWrapper.appendChild(actionBar);
@@ -2450,48 +2488,55 @@ class InsuranceAssistant {
     }
 
     showToast(message, type = 'success') {
-        // Check if there's an existing toast
-        const existingToast = document.querySelector('.toast-notification');
-        if (existingToast) {
-            existingToast.remove();
-        }
-
         const toast = document.createElement('div');
-        toast.className = `toast-notification ${type}`;
-        toast.textContent = message;
+        toast.className = 'toast';
         
-        // Style the toast
-        Object.assign(toast.style, {
-            position: 'fixed',
-            top: '20px',
-            right: '20px',
-            padding: '12px 20px',
-            borderRadius: '5px',
-            color: 'white',
-            fontWeight: 'bold',
-            zIndex: '10000',
-            minWidth: '200px',
-            textAlign: 'center',
-            backgroundColor: type === 'error' ? '#dc3545' : '#28a745',
-            boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)',
-            transform: 'translateX(100%)',
-            transition: 'transform 0.3s ease-in-out'
-        });
-
+        // Set background color based on type
+        let backgroundColor;
+        let textColor = 'white';
+        switch(type) {
+            case 'warning':
+                backgroundColor = 'rgba(209,231,221,0.8)';
+                textColor = 'rgba(15,81,50,0.8)';
+                break;
+            case 'error':
+                backgroundColor = 'rgba(244, 67, 54, 0.9)';
+                break;
+            default: // success
+                backgroundColor = 'rgba(0, 0, 0, 0.8)';
+        }
+        
+        toast.style.cssText = `
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            padding: 12px 24px;
+            border-radius: 4px;
+            background: ${backgroundColor};
+            color: ${textColor};
+            z-index: 1000;
+            opacity: 0;
+            transform: translateY(20px);
+            transition: all 0.3s ease;
+            font-size: 14px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+        `;
+        
+        toast.textContent = message;
         document.body.appendChild(toast);
-
-        // Animate in
+        
+        // Trigger animation
         setTimeout(() => {
-            toast.style.transform = 'translateX(0)';
+            toast.style.opacity = '1';
+            toast.style.transform = 'translateY(0)';
         }, 10);
-
-        // Auto remove after 3 seconds
+        
+        // Remove after 3 seconds
         setTimeout(() => {
-            toast.style.transform = 'translateX(100%)';
+            toast.style.opacity = '0';
+            toast.style.transform = 'translateY(20px)';
             setTimeout(() => {
-                if (toast.parentNode) {
-                    toast.remove();
-                }
+                document.body.removeChild(toast);
             }, 300);
         }, 3000);
     }
@@ -2505,12 +2550,17 @@ class InsuranceAssistant {
         }
 
         try {
+            // Check if text is Arabic and using Kokoro provider
+            if (this.isArabicText(text) && this.ttsConfig.provider === 'kokoro') {
+                this.showToast('Arabic text is not supported with the current voice. Please switch to ElevenLabs voice for Arabic support.', 'warning');
+                return;
+            }
+
             // Add loading animation
             this.addClickAnimation(button);
             const originalContent = button.innerHTML;
             button.innerHTML = '⏳'; // Loading indicator
             button.disabled = true;
-
 
             // Clean up text for better TTS
             // Add newlines before single bullet symbols (*, •, ✓) that are not followed by another one
@@ -2583,7 +2633,8 @@ class InsuranceAssistant {
                 },
                 body: JSON.stringify({
                     text: ttsText,
-                    voice: 'af_heart' // Default voice
+                    voice: this.ttsConfig.voice,
+                    provider: this.ttsConfig.provider
                 })
             });
 
@@ -3205,6 +3256,198 @@ class InsuranceAssistant {
             'Traditional Arabic',
             'Simplified Arabic'
         ];
+    }
+
+    async loadTTSVoices() {
+        try {
+            const response = await fetch('/api/tts/voices');
+            if (response.ok) {
+                this.ttsConfig.availableVoices = await response.json();
+                console.log('Loaded TTS voices:', this.ttsConfig.availableVoices);
+            } else {
+                console.error('Failed to load TTS voices');
+                // Use fallback configuration
+                this.ttsConfig.availableVoices = {
+                    providers: {
+                        kokoro: {
+                            available: true,
+                            voices: {
+                                sarah: { name: "Sarah", description: "Natural female voice", language: "English" },
+                                emma: { name: "Emma", description: "Expressive female voice", language: "English" }
+                            }
+                        }
+                    },
+                    default: { provider: "kokoro", voice: "sarah" }
+                };
+            }
+        } catch (error) {
+            console.error('Error loading TTS voices:', error);
+            // Use fallback configuration
+            this.ttsConfig.availableVoices = {
+                providers: {
+                    kokoro: {
+                        available: true,
+                        voices: {
+                            sarah: { name: "Sarah", description: "Natural female voice", language: "English" },
+                            emma: { name: "Emma", description: "Expressive female voice", language: "English" }
+                        }
+                    }
+                },
+                default: { provider: "kokoro", voice: "sarah" }
+            };
+        }
+    }
+
+    createVoiceSelector() {
+        // Check if voice selector already exists
+        if (document.querySelector('.voice-selector')) {
+            return;
+        }
+
+        // Create voice selector container
+        const voiceSelector = document.createElement('div');
+        voiceSelector.className = 'voice-selector';
+        voiceSelector.style.cssText = `
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: var(--bg-color, #ffffff);
+            border: 1px solid rgba(0, 0, 0, 0.2);
+            border-radius: 10px;
+            padding: 15px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            z-index: 1000;
+            min-width: 280px;
+            transition: all 0.3s ease;
+        `;
+
+        // Create title
+        const title = document.createElement('div');
+        title.style.cssText = `
+            font-weight: bold;
+            margin-bottom: 12px;
+            color: var(--text-color, #333333);
+            font-size: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        `;
+        title.innerHTML = `
+            🎵 Voice Settings
+            <span style="cursor: pointer; font-size: 18px; color: #666;" onclick="this.parentElement.parentElement.style.display='none'">×</span>
+        `;
+
+        // Create voice options
+        const voiceOptions = document.createElement('div');
+        voiceOptions.style.cssText = `
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        `;
+
+        // Add voice options for each provider
+        const providers = this.ttsConfig.availableVoices?.providers || {};
+        
+        Object.entries(providers).forEach(([providerId, providerData]) => {
+            if (!providerData.available) return;
+            
+            Object.entries(providerData.voices).forEach(([voiceId, voiceData]) => {
+                const option = document.createElement('label');
+                option.style.cssText = `
+                    display: flex;
+                    align-items: center;
+                    gap: 10px;
+                    padding: 8px 12px;
+                    border-radius: 6px;
+                    cursor: pointer;
+                    background: var(--hover-color, #f8f9fa);
+                    transition: all 0.2s ease;
+                `;
+                
+                const isSelected = this.ttsConfig.provider === providerId && this.ttsConfig.voice === voiceId;
+                
+                option.innerHTML = `
+                    <input type="radio" name="voice" value="${providerId}:${voiceId}" ${isSelected ? 'checked' : ''} 
+                           style="margin: 0;">
+                    <div>
+                        <div style="font-weight: 600; color: var(--text-color, #333);">${voiceData.name}</div>
+                        <div style="font-size: 12px; color: #666;">${voiceData.description}</div>
+                    </div>
+                `;
+                
+                option.addEventListener('change', (e) => {
+                    if (e.target.checked) {
+                        const [provider, voice] = e.target.value.split(':');
+                        this.updateVoiceSettings(provider, voice);
+                        this.showToast(`Voice changed to ${voiceData.name}`);
+                    }
+                });
+                
+                voiceOptions.appendChild(option);
+            });
+        });
+
+        // Assemble the selector
+        voiceSelector.appendChild(title);
+        voiceSelector.appendChild(voiceOptions);
+
+        // Add to page
+        document.body.appendChild(voiceSelector);
+
+        // Make it draggable (optional)
+        this.makeDraggable(voiceSelector);
+    }
+
+    updateVoiceSettings(provider, voice) {
+        this.ttsConfig.provider = provider;
+        this.ttsConfig.voice = voice;
+        
+        // Save to localStorage
+        localStorage.setItem('ttsProvider', provider);
+        localStorage.setItem('ttsVoice', voice);
+        
+        console.log(`TTS settings updated: ${provider}:${voice}`);
+    }
+
+    makeDraggable(element) {
+        let isDragging = false;
+        let startX, startY, startLeft, startTop;
+
+        const title = element.querySelector('div');
+        title.style.cursor = 'move';
+
+        title.addEventListener('mousedown', (e) => {
+            isDragging = true;
+            startX = e.clientX;
+            startY = e.clientY;
+            startLeft = parseInt(window.getComputedStyle(element).left, 10) || 0;
+            startTop = parseInt(window.getComputedStyle(element).top, 10) || 0;
+            e.preventDefault();
+        });
+
+        document.addEventListener('mousemove', (e) => {
+            if (!isDragging) return;
+            
+            const newLeft = startLeft + e.clientX - startX;
+            const newTop = startTop + e.clientY - startY;
+            
+            element.style.left = `${newLeft}px`;
+            element.style.top = `${newTop}px`;
+            element.style.right = 'auto';
+        });
+
+        document.addEventListener('mouseup', () => {
+            isDragging = false;
+        });
+    }
+
+    toggleVoiceSelector() {
+        const existingSelector = document.querySelector('.voice-selector');
+        if (existingSelector) {
+            existingSelector.style.display = existingSelector.style.display === 'none' ? 'block' : 'none';
+        } else {
+            this.createVoiceSelector();
+        }
     }
 }
 

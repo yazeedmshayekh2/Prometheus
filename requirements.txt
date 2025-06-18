@@ -52,6 +52,7 @@ bcrypt
 # Text-to-Speech
 kokoro
 soundfile
+elevenlabs  # ElevenLabs TTS API
 
 # Email functionality for forgot password
 aiosmtplib

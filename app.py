@@ -984,7 +984,94 @@ async def test_family_members(request: FamilyTestRequest):
 # TTS endpoint
 class TTSRequest(BaseModel):
     text: str
-    voice: str = "af_bella"  # Default voice
+    voice: str = "sarah"  # Default voice name (mapped to actual voice)
+    provider: str = "kokoro"  # TTS provider: "kokoro" or "elevenlabs"
+
+# Add ElevenLabs configuration
+ELEVENLABS_API_KEY = "sk_01e90718915d1d12e66a7ce37b1863cbabeafd2770408d2c"
+ELEVENLABS_VOICE_ID = "tnSpp4vdxKPjI9w0GnoV"  # Female voice
+
+# Voice mappings for different providers
+VOICE_MAPPINGS = {
+    "kokoro": {
+        "sarah": "af_bella",
+        "emma": "af_heart"
+    },
+    "elevenlabs": {
+        "sophia": "tnSpp4vdxKPjI9w0GnoV"  # ElevenLabs voice ID
+    }
+}
+
+try:
+    from elevenlabs.client import ElevenLabs
+    elevenlabs_client = ElevenLabs(api_key=ELEVENLABS_API_KEY)
+    ELEVENLABS_AVAILABLE = True
+    print("ElevenLabs TTS initialized successfully")
+except ImportError:
+    ELEVENLABS_AVAILABLE = False
+    elevenlabs_client = None
+    print("ElevenLabs not available - install with: pip install elevenlabs")
+except Exception as e:
+    ELEVENLABS_AVAILABLE = False
+    elevenlabs_client = None
+    print(f"ElevenLabs initialization failed: {e}")
+
+async def generate_elevenlabs_tts(request: TTSRequest):
+    """Generate TTS using ElevenLabs API"""
+    try:
+        print(f"ElevenLabs TTS request: voice={request.voice}, text_length={len(request.text)}")
+        
+        # Get the actual voice ID from mapping
+        actual_voice_id = VOICE_MAPPINGS.get("elevenlabs", {}).get(request.voice, ELEVENLABS_VOICE_ID)
+        
+        # Clean text for TTS (remove markdown formatting)
+        clean_text = request.text
+        clean_text = re.sub(r'\*\*(.*?)\*\*', r'\1', clean_text)  # Remove bold
+        clean_text = re.sub(r'\*(.*?)\*', r'\1', clean_text)      # Remove italic
+        clean_text = re.sub(r'`(.*?)`', r'\1', clean_text)        # Remove code
+        clean_text = re.sub(r'[#]+\s*', '', clean_text)           # Remove headers
+        clean_text = re.sub(r'\s+', ' ', clean_text)              # Normalize whitespace
+        clean_text = clean_text.strip()
+        
+        print(f"Cleaned text preview: {clean_text[:100]}...")
+        
+        # Generate audio using ElevenLabs
+        audio_generator = elevenlabs_client.text_to_speech.convert(
+            text=clean_text,
+            voice_id=actual_voice_id,
+            model_id="eleven_multilingual_v2",
+            output_format="mp3_44100_128",
+        )
+        
+        # Collect audio data
+        audio_data = b""
+        for chunk in audio_generator:
+            audio_data += chunk
+        
+        if not audio_data:
+            raise HTTPException(
+                status_code=500,
+                detail="ElevenLabs failed to generate audio"
+            )
+        
+        print(f"ElevenLabs generated {len(audio_data)} bytes of audio")
+        
+        # Return as streaming response
+        return StreamingResponse(
+            io.BytesIO(audio_data),
+            media_type="audio/mpeg",
+            headers={
+                "Content-Disposition": "attachment; filename=speech.mp3",
+                "Content-Length": str(len(audio_data))
+            }
+        )
+        
+    except Exception as e:
+        print(f"ElevenLabs TTS error: {str(e)}")
+        # Fallback to Kokoro if ElevenLabs fails
+        print("Falling back to Kokoro TTS")
+        request.provider = "kokoro"
+        return await text_to_speech(request)
 
 @api_app.post(
     "/tts",
@@ -995,21 +1082,34 @@ class TTSRequest(BaseModel):
     },
     tags=["TTS"],
     summary="Convert text to speech",
-    description="Convert the provided text to audio using Kokoro TTS."
+    description="Convert the provided text to audio using Kokoro TTS or ElevenLabs."
 )
 async def text_to_speech(request: TTSRequest):
+    # Check if the requested provider is available
+    if request.provider == "elevenlabs":
+        if not ELEVENLABS_AVAILABLE or not elevenlabs_client:
+            print("ElevenLabs not available, falling back to Kokoro")
+            request.provider = "kokoro"
+        else:
+            return await generate_elevenlabs_tts(request)
+    
+    # Kokoro TTS (existing implementation)
     if not TTS_AVAILABLE or not tts_pipeline:
         raise HTTPException(
-            status_code=400, 
-            detail="Text-to-speech service is not available"
+            status_code=400,
+            detail="TTS service is not available on this server"
         )
-    
-    if not request.text.strip():
+
+    if not request.text or not request.text.strip():
         raise HTTPException(
-            status_code=400, 
-            detail="Text cannot be empty"
+            status_code=400,
+            detail="Text is required and cannot be empty"
         )
-    
+
+    # Get the actual voice ID from mapping
+    actual_voice = VOICE_MAPPINGS.get("kokoro", {}).get(request.voice, request.voice)
+    print(f"Kokoro TTS request: voice={actual_voice}, text_length={len(request.text)}")
+
     try:
         # Clean text for TTS (remove markdown formatting)
         clean_text = request.text
@@ -1532,7 +1632,7 @@ async def text_to_speech(request: TTSRequest):
                     print(f"  → Trying strategy '{strategy}' with {len(attempt_text)} chars")
                     print(f"    Text to TTS: '{attempt_text[:60]}...'")
                     
-                    chunk_generator = tts_pipeline(attempt_text, voice=request.voice)
+                    chunk_generator = tts_pipeline(attempt_text, voice=actual_voice)
                     
                     for j, (gs, ps, audio) in enumerate(chunk_generator):
                         if audio is not None and len(audio) > 0:
@@ -1638,7 +1738,7 @@ async def text_to_speech(request: TTSRequest):
                         try:
                             print(f"    → Recovery strategy '{strategy_name}': '{recovery_text[:40]}...'")
                             
-                            recovery_generator = tts_pipeline(recovery_text, voice=request.voice)
+                            recovery_generator = tts_pipeline(recovery_text, voice=actual_voice)
                             
                             for j, (gs, ps, audio) in enumerate(recovery_generator):
                                 if audio is not None and len(audio) > 0:
@@ -2159,6 +2259,51 @@ app.mount("/static", StaticFiles(directory="static", html=True), name="static")
 
 # Serve static files from root path for HTML files
 app.mount("/", StaticFiles(directory="static", html=True), name="root_static")
+
+# Get available TTS voices endpoint
+@api_app.get(
+    "/tts/voices",
+    response_model=dict,
+    tags=["TTS"],
+    summary="Get available TTS voices",
+    description="Get list of available TTS voices and providers."
+)
+async def get_tts_voices():
+    """Get available TTS voices and providers"""
+    voices = {
+        "providers": {
+            "kokoro": {
+                "available": TTS_AVAILABLE,
+                "voices": {
+                    "sarah": {
+                        "name": "Sarah",
+                        "description": "Natural female voice (Kokoro)",
+                        "language": "English"
+                    },
+                    "emma": {
+                        "name": "Emma", 
+                        "description": "Expressive female voice (Kokoro)",
+                        "language": "English"
+                    }
+                }
+            },
+            "elevenlabs": {
+                "available": ELEVENLABS_AVAILABLE,
+                "voices": {
+                    "sophia": {
+                        "name": "Sophia",
+                        "description": "Premium female voice (ElevenLabs)",
+                        "language": "Multilingual"
+                    }
+                }
+            }
+        },
+        "default": {
+            "provider": "kokoro",
+            "voice": "sarah"
+        }
+    }
+    return voices
 
 if __name__ == "__main__":
     import uvicorn

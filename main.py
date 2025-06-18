@@ -290,21 +290,35 @@ class LlamaModelWrapper(BaseChatModel):
                 raise
 
     def _generate_text(self, prompt: str, max_tokens: int = 32768, temperature: float = 0.3) -> str:
-        """Generate text with optimized Qwen3 performance"""
+        """Generate text with optimized Qwen3 performance and language-specific responses"""
         try:
-            # Create system message for insurance expertise
+            # Detect language of the prompt
+            is_arabic = bool(re.search(r'[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF]+', prompt))
+            
+            # Create system message with language-specific instructions
+            system_message = {
+                "role": "system",
+                "content": (
+                    "أنت خبير في تحليل وثائق التأمين. قدم إجابات واضحة ومباشرة ودقيقة بناءً على وثائق البوليصة فقط. "
+                    "انتبه جيداً للفروق بين خدمات المرضى الداخليين والخارجيين. استخدم **علامة النجمة** للمبالغ والنسب المهمة. "
+                    "كن موجزاً ومحدداً."
+                ) if is_arabic else (
+                    "You are an expert insurance policy analyst. Provide clear, direct, and accurate answers based solely on "
+                    "the policy documents. Pay close attention to the differences between inpatient and outpatient services. "
+                    "Use **bold** for important amounts and percentages. Be concise and specific."
+                )
+            }
+            
+            # Create messages array
             messages = [
+                system_message,
                 {
-                    "role": "system", 
-                    "content": "You are an expert insurance policy analyst. Provide clear, direct, and accurate answers based solely on the policy documents. Pay close attention to the differences between inpatient and outpatient services. Use **bold** for important amounts and percentages. Be concise and specific."
-                },
-                {
-                    "role": "user", 
+                    "role": "user",
                     "content": prompt
                 }
             ]
             
-            # Apply chat template (Llama format)
+            # Apply chat template
             text = self.tokenizer.apply_chat_template(
                 messages,
                 tokenize=False,
@@ -315,14 +329,14 @@ class LlamaModelWrapper(BaseChatModel):
             # Tokenize
             model_inputs = self.tokenizer([text], return_tensors="pt").to(self.model.device)
             
-            # Generate with optimized parameters for Qwen3
+            # Generate with optimized parameters
             with torch.no_grad():
                 generated_ids = self.model.generate(
                     **model_inputs,
                     max_new_tokens=max_tokens,
                     temperature=temperature,
-                    top_p=0.9,        # Optimized for Qwen3
-                    top_k=50,         # Optimized for Qwen3
+                    top_p=0.9,
+                    top_k=50,
                     do_sample=True,
                     repetition_penalty=1.1,
                     pad_token_id=self.tokenizer.pad_token_id,
@@ -337,11 +351,19 @@ class LlamaModelWrapper(BaseChatModel):
             
             # Decode response
             response = self.tokenizer.batch_decode(generated_ids, skip_special_tokens=True)[0]
+            
+            # If input was in Arabic but response isn't, try to regenerate in Arabic
+            if is_arabic and not bool(re.search(r'[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF]+', response)):
+                # Add explicit Arabic instruction
+                arabic_prompt = "الرجاء الإجابة باللغة العربية فقط:\n" + prompt
+                return self._generate_text(arabic_prompt, max_tokens, temperature)
+            
             return response.strip()
             
         except Exception as e:
-            print(f"Error in Llama text generation: {str(e)}")
-            return "Error generating response. Please try again."
+            print(f"Error in text generation: {str(e)}")
+            # Return error message in the appropriate language
+            return "حدث خطأ في توليد الإجابة. يرجى المحاولة مرة أخرى." if is_arabic else "Error generating response. Please try again."
 
     def _generate(
         self,
@@ -1042,30 +1064,42 @@ class DocumentQASystem:
             print(f"Search error: {str(e)}")
             return "Error searching policy documents."
 
-    def _generate_formatted_response(self, search_results: str) -> str:
-        """Generate formatted response"""
+    def _generate_formatted_response(self, search_results: str, question: str) -> str:
+        """Generate formatted response based on detected language"""
         try:
             if not search_results or "No information found" in search_results:
-                return "Based on the policy documents, I cannot find specific information about the coverage. Please contact your insurance provider for detailed information about the coverage, or reach out to health.claims@dig.qa for assistance."
+                return self._get_no_info_response(self._detect_language(question))
 
-            prompt = f"""Based on these policy details, provide a clear response:
-
-            {search_results}
-
-            Format your response with:
-            - Start with a direct answer about coverage
-            - Use **QR X,XXX** for amounts
-            - Use **XX%** for percentages
-            - Include bullet points for lists
-            - Reference the source documents
-
-            Response:"""
+            # Detect language of the question
+            language = self._detect_language(question)
+            
+            # Get appropriate prompt template
+            templates = self._get_prompt_template(language)
+            prompt = templates['search_prompt'].format(
+                search_results=search_results,
+                amount='QR X,XXX' if language == 'en' else 'X,XXX',
+                percentage='XX'
+            )
 
             response = self._generate_text(prompt, max_tokens=300, temperature=0.3)
             return response.strip()
         except Exception as e:
             print(f"Generation error: {str(e)}")
-            return "Error generating response from policy information."
+            return self._get_error_response(self._detect_language(question))
+    
+    def _get_no_info_response(self, language: str) -> str:
+        """Get a no-information response in the appropriate language"""
+        if language == 'ar':
+            return "عذراً، يمكنني فقط الإجابة على الأسئلة المتعلقة بوثيقة التأمين الخاصة بك."
+        return "I'm sorry, I can only answer questions about the policy."
+    
+    def _get_error_response(self, language: str) -> str:
+        """Get language-specific error response"""
+        responses = {
+            'en': "I apologize, but I encountered an error processing your request. Please try again.",
+            'ar': "عذراً، لقد واجهت خطأ في معالجة طلبك. يرجى المحاولة مرة أخرى."
+        }
+        return responses.get(language, responses['en'])
 
     def _handle_agent_error(self, error: str, query: str) -> str:
         """Enhanced error handling with retry logic"""
@@ -2793,6 +2827,8 @@ Format Requirements:
 - Focus on one aspect at a time
 - Base questions only on information present in the policy
 - Make questions natural and conversational
+- Don't include any weird characters or symbols except the question mark
+- Only include the questions, no other text
 
 Generate exactly 5 questions:"""
 
@@ -3551,118 +3587,86 @@ General Insurance Guidelines:
     def intelligent_search_and_answer(self, national_id: str, question: str, 
                                      chat_history: Optional[list] = None,
                                      use_rag_fusion: bool = False) -> QueryResponse:
-        """
-        Intelligent search and answer system optimized for performance and quality
-        """
+        """Enhanced search and answer with language support"""
         try:
-            print(f"\n=== Processing Query ===")
-            print(f"Question: {question}")
-            print(f"National ID: {national_id}")
-            print(f"Chat history: {chat_history}")
+            # Detect language
+            language = self._detect_language(question)
             
-            # Step 1: Load available collections (fast check)
-            self._load_available_collections()
-            
-            # Step 2: Process documents only if needed (will skip if already processed)
-            documents_processed = self.process_and_index_user_documents(national_id)
-            if not documents_processed:
+            # First try FAQ search
+            faq_results = self.search_faq_semantic(question, k=5)
+            if faq_results:
+                # Use the best FAQ match
+                best_match = faq_results[0]
+                answer = best_match['answer_ar'] if language == 'ar' and best_match.get('answer_ar') else best_match['answer_en']
+                
                 return QueryResponse(
-                    answer="No policy documents found for your National ID. Please verify your ID or contact support.",
-                    sources=[]
+                    answer=answer,
+                    sources=[],  # FAQ doesn't need sources
+                    coverage_details={},
+                    suggested_questions=self._generate_follow_up_questions(question, answer)
                 )
             
-            # Step 3: Get user's document collections (now cached)
-            user_collections = []
-            documents = self.get_policy_documents_by_national_id(national_id)
-            
-            for doc_info in documents:
-                pdf_filename = doc_info['pdf_link'].split('/')[-1]
-                collection_name = self.document_collections.get(pdf_filename)
-                if collection_name:
-                    user_collections.append(collection_name)
-                    print(f"Using collection: {collection_name} for {pdf_filename}")
-            
-            if not user_collections:
-                print("No collections found in cache, trying direct lookup...")
-                # Fallback: try to find collections by filename pattern
+            # Get user's policy documents
+            if national_id:
+                documents = self.get_policy_documents_by_national_id(national_id)
+                collections = []
                 for doc_info in documents:
                     pdf_filename = doc_info['pdf_link'].split('/')[-1]
-                    expected_collection = self._generate_collection_name(pdf_filename)
-                    try:
-                        collection_info = self.qdrant_client.get_collection(expected_collection)
-                        if collection_info.points_count > 0:
-                            user_collections.append(expected_collection)
-                            self.document_collections[pdf_filename] = expected_collection
-                            print(f"Found collection: {expected_collection}")
-                    except Exception:
-                        continue
-            
-            if not user_collections:
+                    collection_name = self.document_collections.get(pdf_filename)
+                    if collection_name:
+                        collections.append(collection_name)
+                
+                if not collections:
+                    return QueryResponse(
+                        answer=self._get_no_info_response(language),
+                        sources=[]
+                    )
+                
+                # Perform search based on strategy
+                if use_rag_fusion:
+                    chunks = self._rag_fusion_search(question, collections)
+                else:
+                    chunks = self._multi_stage_search(question, collections)
+                
+                if not chunks:
+                    return QueryResponse(
+                        answer=self._get_no_info_response(language),
+                        sources=[]
+                    )
+                
+                # Prepare context and generate response
+                context = self._prepare_context_for_llm(chunks, question)
+                response_text = self._generate_intelligent_response(question, context)
+                
+                # Format sources
+                sources = []
+                for chunk in chunks[:3]:  # Top 3 most relevant chunks
+                    source_info = SourceInfo(
+                        content=chunk.content[:200],  # First 200 chars
+                        source=chunk.metadata.get('source', 'Unknown'),
+                        score=chunk.relevance_score,
+                        relevant_excerpts=chunk.relevant_excerpts,
+                        tags=chunk.tags
+                    )
+                    sources.append(source_info)
+                
                 return QueryResponse(
-                    answer="Your policy documents are being processed. Please try again in a moment.",
-                    sources=[]
+                    answer=response_text,
+                    sources=sources,
+                    coverage_details=self._extract_coverage_details(response_text),
+                    suggested_questions=self._generate_follow_up_questions(question, response_text)
                 )
             
-            print(f"Searching in {len(user_collections)} collections: {user_collections}")
-            
-            # Step 4: Perform intelligent search - choose between regular or RAG Fusion
-            if use_rag_fusion:
-                print("Using RAG Fusion search approach...")
-                relevant_chunks = self._rag_fusion_search(question, user_collections)
-            else:
-                print("Using regular multi-stage search...")
-                relevant_chunks = self._multi_stage_search(question, user_collections)
-            
-            if not relevant_chunks:
-                return QueryResponse(
-                    answer="I couldn't find relevant information in your policy documents for this question. Could you please rephrase or ask about a different aspect of your coverage?",
-                    sources=[]
-                )
-            
-            print(f"Found {len(relevant_chunks)} relevant chunks")
-            
-            # Step 5: Generate intelligent response using Llama 3.1
-            context_text = self._prepare_context_for_llm(relevant_chunks, question)
-            # If chat_history is provided, prepend it to the context for multi-turn
-            if chat_history:
-                # Build a chat-style prompt
-                chat_prompt = ""
-                for msg in chat_history:
-                    role = msg.get('role', 'user')
-                    content = msg.get('content', '')
-                    if role == 'user':
-                        chat_prompt += f"User: {content}\n"
-                    else:
-                        chat_prompt += f"Assistant: {content}\n"
-                chat_prompt += f"User: {question}\n"
-                chat_prompt += context_text
-                response_text = self._generate_intelligent_response(chat_prompt, context_text)
-            else:
-                response_text = self._generate_intelligent_response(question, context_text)
-            
-            # Step 6: Create source information
-            sources = [
-                SourceInfo(
-                    content=self._replace_old_email_with_new(chunk.content[:200] + "..." if len(chunk.content) > 200 else chunk.content),
-                    source=chunk.metadata.get('source', 'Unknown'),
-                    score=chunk.relevance_score or 0.0,
-                    relevant_excerpts=[self._replace_old_email_with_new(chunk.content[:100] + "..." if len(chunk.content) > 100 else chunk.content)],
-                    tags=chunk.tags or []
-                )
-                for chunk in relevant_chunks[:3]  # Top 3 sources
-            ]
-            
+            # If we get here, we couldn't find an answer
             return QueryResponse(
-                answer=response_text,
-                sources=sources,
-                coverage_details=self._extract_coverage_details(response_text),
-                suggested_questions=self._generate_follow_up_questions(question, response_text)
+                answer=self._get_no_info_response(language),
+                sources=[]
             )
             
         except Exception as e:
             print(f"Error in intelligent search and answer: {str(e)}")
             return QueryResponse(
-                answer="I apologize, but I encountered an error processing your request. Please try again.",
+                answer=self._get_error_response(self._detect_language(question)),
                 sources=[]
             )
 
@@ -4132,69 +4136,81 @@ ANSWER:
         return details
 
     def _generate_follow_up_questions(self, original_question: str, response: str) -> List[str]:
-        """
-        Generate intelligent follow-up questions
-        """
+        """Generate balanced bilingual follow-up questions using LLM"""
         try:
-                # Initialize with standard follow-up questions
-            standard_questions = [
-                "What are the specific limitations for this coverage?",
-                "What is the annual limit for this benefit?",
-                "How does the deductible apply to this coverage?",
-                "Which providers are in the network for this coverage?",
-                "What is the pre-approval process for this treatment?"
-            ]
+            # Create a prompt for generating bilingual questions
+            prompt = f"""Based on this insurance-related question and response, generate 4 unique follow-up questions:
+- 2 questions in English
+- 2 questions in Arabic
+- Questions should be natural and conversational
+- No special characters or symbols
+- Each question should explore a different aspect
+- Questions should be relevant to insurance coverage
+
+Original Question: {original_question}
+
+Response Summary: {response[:200]}...
+
+Format your response exactly like this:
+EN1: [First English question]
+EN2: [Second English question]
+AR1: [First Arabic question]
+AR2: [Second Arabic question]
+
+Generate questions:"""
+
+            # Use the initialized LLM instance
+            if hasattr(self, 'llm') and self.llm is not None:
+                # Generate questions using the LLM's _generate_text method
+                generated_text = self.llm._generate_text(
+                    prompt,
+                    max_tokens=256,
+                    temperature=0.7
+                )
+            else:
+                # Fallback to backup questions if LLM is not available
+                print("LLM not initialized, using backup questions")
+                return [
+                    "What are the coverage limits for this benefit?",
+                    "Are pre-approvals required for this service?",
+                    "ما هي حدود التغطية لهذه المنفعة؟",
+                    "هل تحتاج إلى موافقة مسبقة لهذه الخدمة؟"
+                ]
             
-            follow_ups = []
+            # Parse the generated questions
+            questions = []
+            for line in generated_text.split('\n'):
+                line = line.strip()
+                if line.startswith(('EN1:', 'EN2:', 'AR1:', 'AR2:')):
+                    # Remove the prefix and clean the question
+                    question = line[4:].strip()
+                    # Basic cleaning
+                    question = question.replace('[', '').replace(']', '').strip()
+                    if question and len(question) > 10:  # Ensure it's a valid question
+                        questions.append(question)
             
-            # Add context-specific questions based on response content
-            if "covered" in response.lower():
-                follow_ups.append("What are the specific limitations for this coverage?")
-                follow_ups.append("What is the annual limit for this benefit?")
+            # If we don't get exactly 4 questions, generate some backups
+            if len(questions) != 4:
+                backup_questions = [
+                    "What are the coverage limits for this benefit?",
+                    "Are pre-approvals required for this service?",
+                    "ما هي حدود التغطية لهذه المنفعة؟",
+                    "هل تحتاج إلى موافقة مسبقة لهذه الخدمة؟"
+                ]
+                # Fill in any missing questions with backups
+                while len(questions) < 4:
+                    questions.append(backup_questions[len(questions)])
             
-            if "deductible" in response.lower():
-                follow_ups.append("How does the deductible apply to this coverage?")
-                follow_ups.append("What expenses count towards my deductible?")
+            return questions[:4]  # Return exactly 4 questions
             
-            if "network" in response.lower():
-                follow_ups.append("Which providers are in the network for this coverage?")
-                follow_ups.append("What are the out-of-network coverage rates?")
-            
-            if "pre-approval" in response.lower():
-                follow_ups.append("What is the pre-approval process for this treatment?")
-                follow_ups.append("How long does pre-approval typically take?")
-            
-            if "cost" in response.lower() or "payment" in response.lower():
-                follow_ups.append("Are there any copayments for this service?")
-                follow_ups.append("What is my out-of-pocket maximum?")
-            
-            # Remove duplicates while preserving order
-            seen = set()
-            unique_follow_ups = []
-            for q in follow_ups:
-                if q.lower() not in seen:
-                    seen.add(q.lower())
-                    unique_follow_ups.append(q)
-            
-            # If we have less than 5 questions, add from standard questions
-            while len(unique_follow_ups) < 5:
-                for q in standard_questions:
-                    if q.lower() not in seen and len(unique_follow_ups) < 5:
-                        seen.add(q.lower())
-                        unique_follow_ups.append(q)
-            
-            # Return exactly 5 questions
-            return unique_follow_ups[:3]
-                
         except Exception as e:
-            print(f"Error generating follow-up questions: {str(e)}")
-            # Return 5 standard questions as fallback
+            print(f"Error generating bilingual follow-up questions: {str(e)}")
+            # Return backup questions if generation fails
             return [
                 "What are the coverage limits for this benefit?",
-                "Are there any deductibles that apply?",
-                "What providers are in the network?",
-                "Is pre-approval required for this service?",
-                "What are my out-of-pocket costs?"
+                "Are pre-approvals required for this service?",
+                "ما هي حدود التغطية لهذه المنفعة؟",
+                "هل تحتاج إلى موافقة مسبقة لهذه الخدمة؟"
             ]
 
     def _generate_query_variations(self, original_query: str, num_variations: int = 3) -> List[str]:
@@ -4598,7 +4614,7 @@ ANSWER:
             print(f"Starting integrated search for: {question[:50]}...")
             
             # Step 1: Search FAQ collection with semantic similarity (UNCHANGED)
-            faq_results = self.search_faq_semantic(question, k=5, similarity_threshold=0.8)  # High threshold for FAQ matches
+            faq_results = self.search_faq_semantic(question, k=5, similarity_threshold=0.75)  # High threshold for FAQ matches
             
             if faq_results:
                 # Found good FAQ match - now enhance it with LLM-generated detailed response
@@ -4834,5 +4850,67 @@ GENERATE RESPONSE:"""
             print(f"Error generating fallback response: {str(e)}")
             # Return a simple fallback if something goes wrong
             return "I couldn't find specific information about this in my database. Could you please rephrase your question?"
+
+    def _detect_language(self, text: str) -> str:
+        """Detect if text is primarily Arabic or English"""
+        # Arabic Unicode range pattern
+        arabic_pattern = re.compile(r'[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]')
+        
+        # Count Arabic characters
+        arabic_count = len(arabic_pattern.findall(text))
+        # Count English characters
+        english_count = len(re.findall(r'[a-zA-Z]', text))
+        
+        return 'ar' if arabic_count > english_count else 'en'
+    
+    def _get_prompt_template(self, language: str) -> Dict[str, str]:
+        """Get language-specific prompt templates"""
+        templates = {
+            'en': {
+                'search_prompt': """Based on these policy details, provide a clear response:
+
+                {search_results}
+
+                Format your response with:
+                - Start with a direct answer about coverage
+                - Use **QR X,XXX** for amounts
+                - Use **XX%** for percentages
+                - Include bullet points for lists
+                - Reference the source documents
+
+                Response:""",
+                
+                'fallback': """I understand you're asking about {topic}. While I don't have specific information about this in my database, I'd like to help you get the information you need.
+
+                Try rephrasing your question:
+                {rephrasing}
+
+                You might also be interested in:
+                {related_topics}"""
+            },
+            'ar': {
+                'search_prompt': """بناءً على تفاصيل الوثيقة التالية، قدم إجابة واضحة:
+
+                {search_results}
+
+                نسق إجابتك كما يلي:
+                - ابدأ بإجابة مباشرة عن التغطية
+                - استخدم **{amount} ريال** للمبالغ
+                - استخدم **{percentage}%** للنسب المئوية
+                - استخدم النقاط للقوائم
+                - أشر إلى مستندات المصدر
+
+                الإجابة:""",
+                
+                'fallback': """أفهم أنك تسأل عن {topic}. بينما لا تتوفر لدي معلومات محددة عن هذا في قاعدة البيانات، أود مساعدتك في الحصول على المعلومات التي تحتاجها.
+
+                حاول إعادة صياغة سؤالك:
+                {rephrasing}
+
+                قد تهتم أيضاً بـ:
+                {related_topics}"""
+            }
+        }
+        return templates.get(language, templates['en'])
 
 

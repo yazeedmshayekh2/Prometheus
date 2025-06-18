@@ -573,7 +573,11 @@ class InsuranceAssistant {
         // Step 5: Currency and percentage formatting
         html = html
             .replace(/QR\s*(\d{1,3}(?:,\d{3})*(?:\.\d+)?(?:\/-)?)/g, '<strong>QR $1</strong>')
-            .replace(/(\d+(?:\.\d+)?)%/g, '<strong>$1%</strong>');
+            .replace(/(\d+(?:\.\d+)?)%/g, '<strong>$1%</strong>')
+            // Add break before explanations with strong tags
+            .replace(/(<strong>Explanation:<\/strong>)/g, '<br>$1<br>')
+            .replace(/\*([^\*\n]+)\*/g, '<strong>$1</strong>');
+            
     
         // Step 6: Numbered lists inside sentences
         if (!isArabic) {

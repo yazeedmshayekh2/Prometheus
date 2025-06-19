@@ -1,3 +1,10 @@
+if (typeof Auth !== 'undefined') {
+    console.log('Auth class already exists');
+} else {
+    console.log('Auth class does not exist');
+}
+
+if (typeof Auth === 'undefined') {
 class Auth {
     constructor() {
         this.form = document.querySelector('form#loginForm') || 
@@ -748,7 +755,25 @@ class Auth {
     }
 
     static logout() {
-        Auth.prototype.redirectToLogin();
+        console.log('Logout method called');
+        try {
+            // Clear all localStorage items
+            localStorage.removeItem('authToken');
+            localStorage.removeItem('userName');
+            localStorage.removeItem('userEmail');
+            localStorage.removeItem('ttsProvider');
+            localStorage.removeItem('ttsVoice');
+            localStorage.removeItem('arabicFont');
+            
+            console.log('LocalStorage cleared, redirecting to login...');
+            
+            // Redirect to login page
+            window.location.href = '/login.html';
+        } catch (error) {
+            console.error('Error during logout:', error);
+            // Force redirect even if there's an error
+            window.location.href = '/login.html';
+        }
     }
 }
 
@@ -764,4 +789,4 @@ document.addEventListener('DOMContentLoaded', () => {
         document.querySelector('form#resetPasswordForm')) {
         new Auth();
     }
-}); 
+}); }

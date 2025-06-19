@@ -1640,8 +1640,8 @@ class InsuranceAssistant {
             name.className = 'member-name';
             const fullName = member.name || member.individual_name || 'N/A';
             const nameParts = fullName.split(' ');
-            const firstName = nameParts[0] || '';
-            const lastName = nameParts[nameParts.length - 1] || '';
+            const firstName = (nameParts[0] || '').toUpperCase();
+            const lastName = (nameParts[nameParts.length - 1] || '').toUpperCase();
             name.textContent = `${firstName} ${lastName}`;
             topSection.appendChild(name);
 
@@ -1649,12 +1649,17 @@ class InsuranceAssistant {
             const details = document.createElement('div');
             details.className = 'member-details';
 
+            console.log(member);
+
             // Add member details
             const detailsData = [
-                { label: 'ID Number', value: member.id || member.individual_id || member.national_id || 'N/A' },
-                { label: 'Relation', value: this.capitalizeWords(member.relation || 'Member') },
-                { label: 'Policy Number', value: member.policyNumber || member.policy_number || 'N/A' },
-                { label: 'Expiry Date', value: this.formatDate(member.expiryDate || member.end_date) || 'N/A' }
+                { value: member.company_name || member.individual_name || 'N/A' },
+                { value: (member.id || member.individual_id || member.national_id || 'N/A') + ' - ' + member.contract_id || 'N/A' },
+                { label: 'C.I.D No.', value: member.national_id || 'N/A' },
+                { label: 'Relation', value: member.relation_order === 1 ? 'Spouse' : (member.relation_order === 2 ? 'Child' : 'Principal') },
+                { label: 'Staff No.', value: member.parent_id || 'N/A' },
+                { label: 'DOB', value: this.formatDate(member.date_of_birth) || 'N/A' },
+                { label: 'Coverage Period', value: this.formatDate(new Date()) + ' - ' + this.formatDate(member.end_date) || 'N/A' },
             ];
 
             detailsData.forEach(detail => {
@@ -2248,32 +2253,30 @@ class InsuranceAssistant {
                     this.isNationalIdConfirmed = conversation.isNationalIdConfirmed || false;
 
                     // Restore family data if available
-                    if (conversation.userInfo.familyData) {
-                        this.familyData = conversation.userInfo.familyData;
-                        // Update beneficiary count with actual family data count
-                        if (this.beneficiaryCount && this.familyData.total_members) {
-                            this.beneficiaryCount.textContent = this.familyData.total_members.toString();
-                        } else if (this.beneficiaryCount && this.familyData.members) {
-                            this.beneficiaryCount.textContent = this.familyData.members.length.toString();
-                        }
-                        this.setupBeneficiaryCountClick();
-                    }
+                    this.setupBeneficiaryCountClick();
 
                     // Update PDF if available
-                    if (conversation.userInfo.pdfInfo && conversation.userInfo.pdfInfo.pdf_link) {
-                        const tobModal = document.getElementById('TOBModal');
-                        if (tobModal) {
-                            const pdfFrame = tobModal.querySelector('#pdfFrame');
-                            if (pdfFrame) {
-                                pdfFrame.src = conversation.userInfo.pdfInfo.pdf_link;
-                                
-                                // Update the View TOB link if it exists
-                                const tobLink = document.querySelector('a[data-bs-target="#TOBModal"]');
-                                if (tobLink) {
-                                    tobLink.style.display = 'inline-block';
-                                }
-                            }
+                    const memberWithPdf = conversation.pdfInfo.pdf_link;
+                    let pdfInfo = null;
+                        if (memberWithPdf) {
+                            pdfInfo = {
+                                pdf_link: memberWithPdf,
+                                company_name: conversation.userInfo.contractorName || 'DIG'
+                            };
                         }
+                    
+
+                    // Display PDF if we found any PDF information
+                    if (pdfInfo) {
+                        console.log('Displaying PDF with info:', pdfInfo);
+                        try {
+                            await this.displayPDF(pdfInfo);
+                        } catch (error) {
+                            console.error('Error displaying PDF:', error);
+                            this.showErrorMessage('Failed to display PDF. Please try again later.');
+                        }
+                    } else {
+                        console.log('No PDF link available in the response');
                     }
                 }
 
@@ -3506,3 +3509,51 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 console.log('app.js finished loading'); 
+
+// Global logout function for the logout button
+function handleLogout() {
+    console.log('handleLogout called');
+    
+    try {
+        // Try to use Auth.logout() first
+        if (typeof Auth !== 'undefined' && Auth.logout) {
+            console.log('Using Auth.logout()');
+            Auth.logout();
+            return;
+        }
+    } catch (error) {
+        console.error('Error with Auth.logout():', error);
+    }
+    
+    // Fallback logout method
+    console.log('Using fallback logout method');
+    try {
+        // Clear all localStorage items
+        localStorage.removeItem('authToken');
+        localStorage.removeItem('userName');
+        localStorage.removeItem('userEmail');
+        localStorage.removeItem('ttsProvider');
+        localStorage.removeItem('ttsVoice');
+        localStorage.removeItem('arabicFont');
+        
+        console.log('LocalStorage cleared, redirecting to login...');
+        
+        // Show a brief logout message
+        if (window.insuranceAssistant && window.insuranceAssistant.showToast) {
+            window.insuranceAssistant.showToast('Logging out...', 'success');
+        }
+        
+        // Redirect to login page after a brief delay
+        setTimeout(() => {
+            window.location.href = '/login.html';
+        }, 500);
+        
+    } catch (error) {
+        console.error('Error during fallback logout:', error);
+        // Force immediate redirect as last resort
+        window.location.href = '/login.html';
+    }
+}
+
+// Make handleLogout globally available
+window.handleLogout = handleLogout;

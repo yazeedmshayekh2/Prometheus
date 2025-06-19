@@ -407,10 +407,6 @@ strong{
     justify-content: space-between;
 }
 
-.family-member-card:hover {
-    transform: translateY(-5px);
-}
-
 .family-member-card .card-content {
     position: relative;
     width: 100%;
@@ -422,7 +418,7 @@ strong{
 }
 
 .family-member-card .member-name {
-    margin-left: 8px;
+    margin-left: 6px;
     font-size: 13px;
     font-weight: 500;
     color: #1b1b1b;
@@ -440,7 +436,7 @@ strong{
 .family-member-card .detail-row {
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: 0px;
     padding: 5px;
     border-radius: 8px;
 }

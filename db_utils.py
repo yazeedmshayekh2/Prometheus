@@ -153,9 +153,10 @@ class DatabaseConnection:
 
                 SELECT DISTINCT
                     p.NationalID,
+                    c.ContractID,
                     p.IndividualID,
+                    p.ParentID,
                     p.Name,
-                    p.ContractID,
                     p.CardURL,
                     p.DOB as DateOfBirth,
                     c.CompanyName,
@@ -197,8 +198,6 @@ class DatabaseConnection:
                 print(f"Query returned {len(df)} rows")
                 if len(df) > 0:
                     print(f"Columns: {list(df.columns)}")
-                    print("Sample data:")
-                    print(df.head())
                 return df
                 
         except Exception as e:
@@ -324,3 +323,18 @@ class DatabaseConnection:
         except Exception as e:
             print(f"Error in get_all_policies: {str(e)}")
             return []
+        
+    def get_both_individual_name_and_pdf_link(self, national_id: str) -> str:
+        """Get the individual name for a given national ID"""
+        query = """
+        SELECT Name, PDFLink FROM tblHPolicies WHERE NationalID = ?
+        """
+        try:
+            with pyodbc.connect(self.connection_string) as conn:
+                cursor = conn.cursor()
+                cursor.execute(query, (national_id,))
+                result = cursor.fetchone()
+                return result[0], result[1] if result else None
+        except Exception as e:
+            print(f"Error in get_both_individual_name_and_pdf_link: {str(e)}")
+            return None, None

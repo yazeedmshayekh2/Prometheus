@@ -2,6 +2,7 @@ import sqlite3
 from datetime import datetime, timedelta
 import os
 import uuid  # Add UUID import
+from db_utils import DatabaseConnection
 
 class AuthDB:
     def __init__(self):
@@ -288,16 +289,22 @@ class AuthDB:
             )
             state = cursor.fetchone()
             
+            db = DatabaseConnection()
+            
             return {
                 'id': conversation[0],
                 'messages': messages,
                 'created_at': conversation[1],
                 'updated_at': conversation[2],
+                'pdfInfo': {
+                    'pdf_link': db.get_family_members(state[3])['PDFLink'].iloc[-1] if state[3] else '-'
+                },
                 'userInfo': {
                     'contractorName': state[0] if state else '-',
                     'expiryDate': state[1] if state else '-',
                     'beneficiaryCount': state[2] if state else '-',
-                    'nationalId': state[3] if state else ''
+                    'nationalId': state[3] if state else '',
+                    'individualName': db.get_family_members(state[3])['Name'].iloc[-1] if state[3] else '-'
                 } if state else None,
                 'suggestedQuestions': state[4] if state else '',
                 'isNationalIdConfirmed': bool(state[5]) if state else False

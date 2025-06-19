@@ -757,7 +757,6 @@ async def get_suggestions(request: SuggestionsRequest):
                     "total_members": len(family_members)
                 }
                 print(f"Found {len(family_members)} family members")
-                print("Family members data:", family_members)
             else:
                 print("No family members found in database")
         except Exception as e:

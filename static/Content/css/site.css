@@ -385,126 +385,93 @@ strong{
 /* Family Member Cards Styling */
 .family-cards-container {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-    gap: 20px;
-    padding: 10px;
-}
-
-.family-member-card {
-    background: #fff;
-    border: 1px solid #e9ecef;
-    border-radius: 12px;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-    overflow: hidden;
-    transition: transform 0.2s ease, box-shadow 0.2s ease;
-}
-
-.family-member-card:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
-}
-
-.family-member-card .card-header {
-    background: rgba(185,159,112,1);
-    color: white;
-    padding: 15px;
-    display: flex;
-    align-items: center;
-    gap: 12px;
-}
-
-.family-member-card .member-icon {
-    font-size: 24px;
-    width: 40px;
-    height: 40px;
-    background: rgba(255, 255, 255, 0.2);
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-}
-
-.family-member-card .member-relation {
-    font-weight: 600;
-    font-size: 14px;
-    text-transform: capitalize;
-    letter-spacing: 0.5px;
-}
-
-.family-member-card .card-body {
+    grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+    gap: 30px;
     padding: 20px;
 }
 
+.family-member-card {
+    border-radius: 20px;
+    overflow: hidden;
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+    position: relative;
+    height: 240px;
+    background-image: url('../img/Medical card.png');
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    cursor: pointer;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+}
+
+.family-member-card:hover {
+    transform: translateY(-5px);
+}
+
+.family-member-card .card-content {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    color: #1b1b1b;
+}
+
 .family-member-card .member-name {
-    font-size: 18px;
-    font-weight: 600;
-    color: #2c3e50;
-    margin-bottom: 15px;
+    margin-left: 8px;
+    font-size: 13px;
+    font-weight: 500;
+    color: #1b1b1b;
     text-transform: capitalize;
+    margin-bottom: 15px;
+    text-shadow: 0 1px 2px rgba(255, 255, 255, 0.8);
 }
 
 .family-member-card .member-details {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    margin-top: auto;
 }
 
 .family-member-card .detail-row {
     display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 8px 0;
-    border-bottom: 1px solid #f8f9fa;
-}
-
-.family-member-card .detail-row:last-child {
-    border-bottom: none;
+    flex-direction: column;
+    gap: 2px;
+    padding: 5px;
+    border-radius: 8px;
 }
 
 .family-member-card .detail-label {
-    font-size: 12px;
-    font-weight: 500;
-    color: #6c757d;
+    font-size: 10px;
+    font-weight: 550;
+    color: #666;
     text-transform: uppercase;
     letter-spacing: 0.5px;
 }
 
 .family-member-card .detail-value {
-    font-size: 14px;
-    font-weight: 600;
-    color: #495057;
-    text-align: right;
+    font-size: 12px;
+    font-weight: 550;
+    color: #1b1b1b;
 }
 
-/* Responsive adjustments for family cards */
+/* Responsive adjustments */
 @media (max-width: 768px) {
     .family-cards-container {
         grid-template-columns: 1fr;
-        gap: 15px;
-        padding: 5px;
+        padding: 10px;
     }
-    
-    .family-member-card .card-header {
-        padding: 12px;
+
+    .family-member-card {
+        width: 100%;
     }
-    
-    .family-member-card .card-body {
-        padding: 15px;
-    }
-    
+
     .family-member-card .member-name {
-        font-size: 16px;
-    }
-    
-    .family-member-card .detail-row {
-        flex-direction: column;
-        align-items: flex-start;
-        gap: 4px;
-    }
-    
-    .family-member-card .detail-value {
-        text-align: left;
-        font-size: 13px;
+        font-size: 20px;
     }
 }
 

@@ -118,6 +118,8 @@ async def lifespan(app: FastAPI):
     
     print("Initializing QA system...")
     
+    db = DatabaseConnection()
+    
     # Get database connection string
     db_connection_string = DatabaseConnection.get_connection_string(DatabaseConnection)
     if not db_connection_string:
@@ -2181,6 +2183,7 @@ async def get_conversation(
     conversation_id: str,
     current_user: dict = Depends(get_current_user)
 ):
+    
     conversation = auth_db.get_conversation(conversation_id, current_user["id"])
     if not conversation:
         raise HTTPException(status_code=404, detail="Conversation not found")

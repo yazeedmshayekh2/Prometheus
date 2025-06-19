@@ -216,6 +216,7 @@ class InsuranceAssistant {
 
             // Update user info display and handle PDF
             if (data?.family_data?.members) {
+                console.log(data.family_data);
                 const members = data.family_data.members;
                 const principal = members.find(m => m.national_id === nationalId) || members[0];
                 
@@ -240,7 +241,7 @@ class InsuranceAssistant {
                     this.expiryDate.textContent = this.formatDate(principal.end_date) || '-';
                     
                     // Fix beneficiary count - use the actual count
-                    const beneficiaryCount = data.family_data.total_members || members.length || 0;
+                    const beneficiaryCount = data.family_data.total_members;
                     this.beneficiaryCount.textContent = beneficiaryCount.toString();
                     console.log('Setting beneficiary count to:', beneficiaryCount);
 
@@ -314,19 +315,16 @@ class InsuranceAssistant {
     }
 
     setupBeneficiaryCountClick() {
-        const beneficiaryElement = document.getElementById('beneficiaryCount');
-        if (beneficiaryElement && this.familyData) {
-            // Make it look clickable using CSS class
-            beneficiaryElement.classList.add('clickable');
-            
-            // Remove any existing click handlers
-            beneficiaryElement.replaceWith(beneficiaryElement.cloneNode(true));
-            const newBeneficiaryElement = document.getElementById('beneficiaryCount');
-            newBeneficiaryElement.classList.add('clickable');
-            
-            // Add click handler
-            newBeneficiaryElement.addEventListener('click', () => {
+        const beneficiaryCount = document.getElementById('beneficiaryCount');
+        if (beneficiaryCount) {
+            beneficiaryCount.style.cursor = 'pointer';
+            beneficiaryCount.style.color = '#007bff';
+            beneficiaryCount.addEventListener('click', () => {
+                console.log('Beneficiary count clicked');
+                // Initialize and show the modal
+                const memsModal = new bootstrap.Modal(document.getElementById('MemsModal'));
                 this.showFamilyMemberCards();
+                memsModal.show();
             });
         }
     }
@@ -1601,75 +1599,112 @@ class InsuranceAssistant {
     }
 
     showFamilyMemberCards() {
-        if (!this.familyData || !this.familyData.members || this.familyData.members.length === 0) {
-            this.showToast('No family member information available', 'error');
+        if (!this.familyData) {
+            console.error('No family data available');
             return;
         }
 
-        const modalBody = document.querySelector('.modal-body.familymem');
+        console.log('Showing family member cards with data:', this.familyData);
+
+        const modalBody = document.querySelector('#MemsModal .modal-body.familymem');
         if (!modalBody) {
-            console.error('Family modal body not found');
+            console.error('Modal body element not found');
             return;
         }
 
-        // Clear existing content
-        modalBody.innerHTML = '';
+        const container = document.createElement('div');
+        container.className = 'family-cards-container';
 
-        // Create cards container
-        const cardsContainer = document.createElement('div');
-        cardsContainer.className = 'family-cards-container';
+        // Handle both array and object structures
+        const members = Array.isArray(this.familyData) 
+            ? this.familyData 
+            : Object.entries(this.familyData).reduce((acc, [relation, members]) => {
+                if (Array.isArray(members)) {
+                    return acc.concat(members.map(m => ({...m, relation})));
+                }
+                return acc;
+            }, []);
 
-        // Sort members by relation for consistent display
-        const sortedMembers = [...this.familyData.members].sort((a, b) => {
-            const order = { 'PRINCIPAL': 1, 'SPOUSE': 2, 'CHILD': 3 };
-            return (order[a.relation] || 4) - (order[b.relation] || 4);
-        });
+        console.log('Processed members:', members);
 
-        // Create a card for each family member
-        sortedMembers.forEach(member => {
+        members.forEach(member => {
             const card = document.createElement('div');
             card.className = 'family-member-card';
             
-            // Get relation icon
-            const relationIcon = this.getRelationIcon(member.relation);
-            
-            card.innerHTML = `
-                <div class="card-header">
-                    <div class="member-icon">${relationIcon}</div>
-                    <div class="member-relation">${this.escapeHtml(member.relation || 'Member')}</div>
-                </div>
-                <div class="card-body">
-                    <div class="member-name">${this.escapeHtml(member.name || 'N/A')}</div>
-                    <div class="member-details">
-                        <div class="detail-row">
-                            <span class="detail-label">Individual ID:</span>
-                            <span class="detail-value">${this.escapeHtml(member.individual_id || member.national_id || 'N/A')}</span>
-                        </div>
-                        <div class="detail-row">
-                            <span class="detail-label">Policy End Date:</span>
-                            <span class="detail-value">${this.formatDate(member.end_date) || 'N/A'}</span>
-                        </div>
-                        ${member.national_id ? `
-                            <div class="detail-row">
-                                <span class="detail-label">QID:</span>
-                                <span class="detail-value">${this.escapeHtml(member.national_id)}</span>
-                            </div>
-                        ` : ''}
-                    </div>
-                </div>
-            `;
-            
-            cardsContainer.appendChild(card);
+            const content = document.createElement('div');
+            content.className = 'card-content';
+
+            // Top section with name
+            const topSection = document.createElement('div');
+            const name = document.createElement('div');
+            name.className = 'member-name';
+            const fullName = member.name || member.individual_name || 'N/A';
+            const nameParts = fullName.split(' ');
+            const firstName = nameParts[0] || '';
+            const lastName = nameParts[nameParts.length - 1] || '';
+            name.textContent = `${firstName} ${lastName}`;
+            topSection.appendChild(name);
+
+            // Details section
+            const details = document.createElement('div');
+            details.className = 'member-details';
+
+            // Add member details
+            const detailsData = [
+                { label: 'ID Number', value: member.id || member.individual_id || member.national_id || 'N/A' },
+                { label: 'Relation', value: this.capitalizeWords(member.relation || 'Member') },
+                { label: 'Policy Number', value: member.policyNumber || member.policy_number || 'N/A' },
+                { label: 'Expiry Date', value: this.formatDate(member.expiryDate || member.end_date) || 'N/A' }
+            ];
+
+            detailsData.forEach(detail => {
+                const detailRow = document.createElement('div');
+                detailRow.className = 'detail-row';
+
+                const label = document.createElement('div');
+                label.className = 'detail-label';
+                label.textContent = detail.label;
+
+                const value = document.createElement('div');
+                value.className = 'detail-value';
+                value.textContent = detail.value;
+
+                detailRow.appendChild(label);
+                detailRow.appendChild(value);
+                details.appendChild(detailRow);
+            });
+
+            // Assemble card
+            content.appendChild(topSection);
+            content.appendChild(details);
+            card.appendChild(content);
+
+            // Add click handler for showing more details
+            card.addEventListener('click', () => {
+                console.log('Card clicked:', member);
+                this.showMemberPolicyDetails(member);
+            });
+
+            container.appendChild(card);
         });
 
-        modalBody.appendChild(cardsContainer);
+        modalBody.innerHTML = '';
+        modalBody.appendChild(container);
 
-        // Show the modal
-        const modal = document.getElementById('MemsModal');
-        if (modal) {
-            const bootstrapModal = new bootstrap.Modal(modal);
-            bootstrapModal.show();
-        }
+        // Initialize and show the modal
+        const memsModal = new bootstrap.Modal(document.getElementById('MemsModal'));
+        
+        // Add hidden event listener to clean up backdrop
+        const modalElement = document.getElementById('MemsModal');
+        modalElement.addEventListener('hidden.bs.modal', () => {
+            const backdrop = document.querySelector('.modal-backdrop');
+            if (backdrop) {
+                backdrop.remove();
+            }
+            document.body.classList.remove('modal-open');
+        });
+        
+        memsModal.show();
     }
 
     formatDate(dateString) {
@@ -2165,6 +2200,8 @@ class InsuranceAssistant {
 
             if (response.ok) {
                 const conversation = await response.json();
+
+                console.log(conversation);
                 
                 // Update conversation ID
                 this.currentConversationId = conversationId;
@@ -2181,6 +2218,7 @@ class InsuranceAssistant {
                 });
 
                 // Restore user information
+                console.log(conversation.userInfo);
                 if (conversation.userInfo) {
                     // Update contractor name
                     if (this.contractorName) {
@@ -2193,14 +2231,16 @@ class InsuranceAssistant {
                     }
 
                     // Update individual name
-                    const individualNameElement = document.querySelector('.name.col-md-7');
-                    if (individualNameElement) {
-                        individualNameElement.textContent = conversation.userInfo.individualName || '-';
+                    const individualNameElement = document.getElementById('individualName');
+                    if (individualNameElement && conversation.userInfo.individualName && conversation.userInfo.individualName !== '-') {
+                        individualNameElement.textContent = conversation.userInfo.individualName;
                     }
 
                     // Update beneficiary count
                     if (this.beneficiaryCount) {
+                        console.log(conversation.userInfo.beneficiaryCount);
                         this.beneficiaryCount.textContent = conversation.userInfo.beneficiaryCount || '-';
+                        console.log(conversation.userInfo.beneficiaryCount);
                     }
 
                     // Update national ID state

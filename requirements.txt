@@ -57,3 +57,18 @@ elevenlabs  # ElevenLabs TTS API
 # Email functionality for forgot password
 aiosmtplib
 email-validator
+
+# Guardrails
+guardrails-ai
+
+'''
+guardrails hub install 
+hub://guardrails/detect_pii 
+hub://tryolabs/restricttotopic
+hub://guardrails/toxic_language 
+hub://guardrails/gibberish_text 
+hub://guardrails/ban_list 
+hub://guardrails/competitor_check 
+hub://guardrails/nsfw_text 
+hub://guardrails/provenance_llm
+'''

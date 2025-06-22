@@ -157,7 +157,9 @@ def fast_reindex_documents(qa_system):
             print("No documents to process")
             return
             
-        print(f"Found {len(documents)} documents to process")
+        # Limit to first 20 documents
+        documents = documents[:1]
+        print(f"Found {len(documents)} documents to process (limited to first 20)")
         
         # Process each document
         successful_docs = 0

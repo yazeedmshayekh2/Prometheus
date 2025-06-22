@@ -45,7 +45,7 @@ def reindex_documents(qa_system):
         
         # Process each document
         successful_docs = 0
-        for doc in documents:
+        for doc in documents[:1]:
             pdf_link = doc['pdf_link']
             
             try:

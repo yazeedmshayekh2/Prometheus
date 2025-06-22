@@ -400,7 +400,7 @@ strong{
     background-size: cover;
     background-position: center;
     background-repeat: no-repeat;
-    cursor: pointer;
+    cursor: default;
     padding: 20px;
     display: flex;
     flex-direction: column;
@@ -420,7 +420,7 @@ strong{
 .family-member-card .member-name {
     margin-left: 6px;
     font-size: 13px;
-    font-weight: 500;
+    font-weight: 550;
     color: #1b1b1b;
     text-transform: capitalize;
     margin-bottom: 15px;
@@ -436,8 +436,8 @@ strong{
 .family-member-card .detail-row {
     display: flex;
     flex-direction: column;
-    gap: 0px;
-    padding: 5px;
+    gap: 7px;
+    padding: 7px;
     border-radius: 8px;
 }
 
@@ -464,10 +464,36 @@ strong{
 
     .family-member-card {
         width: 100%;
+        height: 410px;
     }
 
     .family-member-card .member-name {
         font-size: 20px;
+        margin-left: 25px;
+        margin-top: 10px;
+    }
+
+    .family-member-card .detail-row{
+        margin-left: 20px;
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+        padding: 7px;
+        border-radius: 8px;
+    }
+
+    .family-member-card .detail-value{
+        font-size: 18px;
+        font-weight: 550;
+        color: #1b1b1b;
+    }
+
+    .family-member-card .detail-label{
+        font-size: 20px;
+        font-weight: 550;
+        color: #666;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
     }
 }
 
@@ -1036,7 +1062,8 @@ strong{
 }
 
 .logout-btn {
-    width: 100%;
+    width: 90%;
+    margin: 10px;
     padding: 8px;
     background: #212529;
     color: white;

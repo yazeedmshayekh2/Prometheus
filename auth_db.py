@@ -291,20 +291,29 @@ class AuthDB:
             
             db = DatabaseConnection()
             
+            family_members = db.get_family_members(state[3])
+            
+            try:
+                pdf_link = family_members['PDFLink'].iloc[-1]
+                individual_name = family_members['Name'].iloc[-1]
+            except:
+                pdf_link = '-'
+                individual_name = '-'
+            
             return {
                 'id': conversation[0],
                 'messages': messages,
                 'created_at': conversation[1],
                 'updated_at': conversation[2],
                 'pdfInfo': {
-                    'pdf_link': db.get_family_members(state[3])['PDFLink'].iloc[-1] if state[3] else '-'
+                    'pdf_link': pdf_link if state[3] else '-'
                 },
                 'userInfo': {
                     'contractorName': state[0] if state else '-',
                     'expiryDate': state[1] if state else '-',
                     'beneficiaryCount': state[2] if state else '-',
                     'nationalId': state[3] if state else '',
-                    'individualName': db.get_family_members(state[3])['Name'].iloc[-1] if state[3] else '-'
+                    'individualName': individual_name if state[3] else '-'
                 } if state else None,
                 'suggestedQuestions': state[4] if state else '',
                 'isNationalIdConfirmed': bool(state[5]) if state else False

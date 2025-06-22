@@ -1616,7 +1616,7 @@ class InsuranceAssistant {
         container.className = 'family-cards-container';
 
         // Handle both array and object structures
-        const members = Array.isArray(this.familyData) 
+        const allMembers = Array.isArray(this.familyData) 
             ? this.familyData 
             : Object.entries(this.familyData).reduce((acc, [relation, members]) => {
                 if (Array.isArray(members)) {
@@ -1625,9 +1625,34 @@ class InsuranceAssistant {
                 return acc;
             }, []);
 
-        console.log('Processed members:', members);
+        console.log('Processed members:', allMembers);
 
-        members.forEach(member => {
+        // Sort members by relation priority: Principal first, then Spouse, then Children
+        const sortedMembers = allMembers.sort((a, b) => {
+            const getRelationPriority = (member) => {
+                const relation = (member.relation_order || '');
+                if (relation === 3) return 1;
+                if (relation === 1) return 2;
+                if (relation === 2) return 3;
+                return 4; // Any other relation types
+            };
+            
+            const priorityA = getRelationPriority(a);
+            const priorityB = getRelationPriority(b);
+            
+            // If same priority (e.g., multiple children), sort by name
+            if (priorityA === priorityB) {
+                const nameA = (a.name || '').toLowerCase();
+                const nameB = (b.name || '').toLowerCase();
+                return nameA.localeCompare(nameB);
+            }
+            
+            return priorityA - priorityB;
+        });
+
+        console.log('Sorted members:', sortedMembers);
+
+        sortedMembers.forEach(member => {
             const card = document.createElement('div');
             card.className = 'family-member-card';
             
@@ -1657,7 +1682,6 @@ class InsuranceAssistant {
                 { value: (member.id || member.individual_id || member.national_id || 'N/A') + ' - ' + member.contract_id || 'N/A' },
                 { label: 'C.I.D No.', value: member.national_id || 'N/A' },
                 { label: 'Relation', value: member.relation_order === 1 ? 'Spouse' : (member.relation_order === 2 ? 'Child' : 'Principal') },
-                { label: 'Staff No.', value: member.parent_id || 'N/A' },
                 { label: 'DOB', value: this.formatDate(member.date_of_birth) || 'N/A' },
                 { label: 'Coverage Period', value: this.formatDate(new Date()) + ' - ' + this.formatDate(member.end_date) || 'N/A' },
             ];
@@ -2170,7 +2194,7 @@ class InsuranceAssistant {
             this.chatContainer.innerHTML = '';
             const welcomeMessage = document.createElement('div');
             welcomeMessage.className = 'chat assistant';
-            welcomeMessage.innerHTML = 'Hi I\'m a chatbot that can help with your medical group policy; Please Enter Your Insured Qatari ID';
+            welcomeMessage.innerHTML = '👋 Hi I\'m a chatbot that can help with your medical group policy; Please Enter Your Insured Qatari ID';
             this.chatContainer.appendChild(welcomeMessage);
             
             // Add initial message to chat history
@@ -2251,9 +2275,6 @@ class InsuranceAssistant {
                     // Update national ID state
                     this.currentNationalId = conversation.userInfo.nationalId || '';
                     this.isNationalIdConfirmed = conversation.isNationalIdConfirmed || false;
-
-                    // Restore family data if available
-                    this.setupBeneficiaryCountClick();
 
                     // Update PDF if available
                     const memberWithPdf = conversation.pdfInfo.pdf_link;

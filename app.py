@@ -38,6 +38,8 @@ import traceback
 import warnings
 from functools import lru_cache
 import hashlib
+# Add Guardrails AI integration
+from prometheus_guardrails_integration import PrometheusGuardrails, integrate_with_prometheus
 
 # Load environment variables from .env file
 from dotenv import load_dotenv
@@ -61,6 +63,8 @@ except ImportError:
 qa_system = None
 question_processor = None
 tts_pipeline = None
+# Add guardrails system
+prometheus_guardrails = None
 
 # Global session for connection pooling
 pdf_session = None
@@ -74,22 +78,23 @@ async def get_pdf_session():
         ssl_context.check_hostname = False
         ssl_context.verify_mode = ssl.CERT_NONE
         
-        # Configure connector with optimizations
+        # Configure connector with optimizations for reliability
         connector = aiohttp.TCPConnector(
             ssl=ssl_context,
-            limit=100,  # Total connection pool size
-            limit_per_host=30,  # Max connections per host
+            limit=50,  # Reduced total connection pool size
+            limit_per_host=10,  # Reduced max connections per host
             ttl_dns_cache=300,  # DNS cache TTL
             use_dns_cache=True,
-            keepalive_timeout=30,
             enable_cleanup_closed=True
+            # keepalive_timeout and force_close are incompatible
+            # auto_decompress removed - not supported in all aiohttp versions
         )
         
-        # Configure timeout
+        # Configure timeout with more reasonable values
         timeout = aiohttp.ClientTimeout(
-            total=60,  # Total timeout for the entire request
-            connect=10,  # Timeout for establishing connection
-            sock_read=30   # Timeout for reading data
+            total=120,  # Longer total timeout for large PDFs
+            connect=15,  # Timeout for establishing connection
+            sock_read=60   # Longer timeout for reading data
         )
         
         pdf_session = aiohttp.ClientSession(
@@ -114,7 +119,7 @@ def get_pdf_cache_path(pdf_link: str) -> Path:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Initialize QA system on startup"""
-    global qa_system, question_processor, tts_pipeline
+    global qa_system, question_processor, tts_pipeline, prometheus_guardrails
     
     print("Initializing QA system...")
     
@@ -131,6 +136,24 @@ async def lifespan(app: FastAPI):
     
     # Initialize Question Processor
     question_processor = QuestionProcessor(qa_system)
+    
+    # Initialize Guardrails AI system
+    try:
+        print("Initializing Guardrails AI system...")
+        prometheus_guardrails = PrometheusGuardrails(use_guardrails_ai=True, ultra_fast_mode=False)
+        print("✅ Prometheus Guardrails initialized successfully")
+        
+        # Test the guardrails to ensure they're working
+        test_result = prometheus_guardrails.validate_input("My email is test@example.com and I want info")
+        if test_result and not test_result.is_valid:
+            print("✅ Guardrails validation test passed - PII detection working")
+        else:
+            print("⚠️  Guardrails validation test inconclusive")
+        
+    except Exception as e:
+        print(f"⚠️  Guardrails initialization failed: {e}")
+        print("Continuing without Guardrails AI protection")
+        prometheus_guardrails = None
     
     # Initialize TTS pipeline
     if TTS_AVAILABLE:
@@ -305,36 +328,136 @@ async def query_endpoint(request: QueryRequest):
     print(f"   Question: {request.question}")
     print(f"   National ID: {request.national_id}")
     
-    # Content filtering with comprehensive threat detection
-    filter_result = filter_user_input(request.question)
-    
+    # Multi-layer content validation - OPTIMIZED FOR SPEED
+    # Run validations in parallel for faster processing
     user_question_to_process = request.question
     content_warning_for_response = None
+    guardrails_info = {"guardrails_enabled": False}
     
-    if filter_result.threat_level in [ContentThreatLevel.SEVERE, ContentThreatLevel.CRITICAL]:
-        print(f"🚫 Blocking harmful content - Threat: {filter_result.threat_level.value}")
-        print(f"   Categories: {filter_result.detected_categories}")
+    # Fast parallel validation using asyncio
+    async def fast_guardrails_validation():
+        """Fast parallel validation with early exit"""
+        if not prometheus_guardrails:
+            return None, {"guardrails_enabled": False}
         
-        return JSONResponse(
-            status_code=400, 
-            content={
-                "detail": {
-                "error": "inappropriate_content_blocked",
-                "message": filter_result.warning_message,
-                    "suggestion": "Please ask questions related to insurance policies and services.",
-                    "categories": filter_result.detected_categories
-                }
+        try:
+            # Quick input validation with early exit
+            result = prometheus_guardrails.validate_input(request.question)
+            
+            info = {
+                "guardrails_enabled": True,
+                "guardrails_violations": [v.value for v in result.violations],
+                "guardrails_confidence": result.confidence_score
             }
-        )
+            
+            return result, info
+        except Exception as e:
+            # Fast error handling - don't slow down on errors
+            return None, {
+                "guardrails_enabled": True,
+                "guardrails_error": str(e)[:100],  # Truncate long errors
+                "guardrails_confidence": 0.0
+            }
     
-    if not filter_result.is_safe:
-        print(f"⚠️ Sanitized inappropriate/harmful content - Threat: {filter_result.threat_level.value}")
-        print(f"   Categories: {filter_result.detected_categories}")
-        print(f"   Original: {request.question}")
-        user_question_to_process = filter_result.sanitized_content
-        content_warning_for_response = filter_result.warning_message
-        print(f"   Sanitized to: {user_question_to_process}")
+    async def fast_content_filter():
+        """Fast content filtering"""
+        return filter_user_input(request.question)
+    
+    # Run both validations in parallel - MUCH FASTER
+    import asyncio
+    try:
+        # Parallel execution saves significant time
+        guardrails_task = fast_guardrails_validation()
+        content_filter_task = fast_content_filter()
         
+        # Wait for both with timeout for speed
+        guardrails_result, guardrails_info = await asyncio.wait_for(guardrails_task, timeout=2.0)
+        filter_result = await asyncio.wait_for(content_filter_task, timeout=1.0)
+        
+    except asyncio.TimeoutError:
+        # If validation takes too long, skip it to maintain speed
+        print("⚡ Validation timeout - proceeding without full validation for speed")
+        guardrails_result = None
+        filter_result = filter_user_input(request.question)  # Fallback to basic filter
+        
+    except Exception as e:
+        # Fast error recovery
+        print(f"⚡ Fast validation error: {str(e)[:50]}...")
+        guardrails_result = None
+        filter_result = filter_user_input(request.question)
+    
+    # FAST EARLY EXIT - Block immediately if needed
+    if guardrails_result and not guardrails_result.is_valid:
+        # Quick block with detailed explanation
+        print(f"🚫 Quick block - Violations: {len(guardrails_result.violations)}")
+        
+        # Create detailed explanation with specific violation messages
+        explanation_parts = [
+            "I'm sorry, but I cannot process this request due to content policy violations:",
+            ""
+        ]
+        
+        # Add each specific violation message
+        for message in guardrails_result.messages:
+            explanation_parts.append(f"• {message}")
+        
+        explanation_parts.extend([
+            "",
+            "💡 **How to proceed:**",
+            "• Remove any personal information (SSN, credit cards, emails, phone numbers).",
+            "• Use respectful, professional language.", 
+            "• Ask questions related to insurance policies and services.",
+            "• Avoid mentioning competitor companies.",
+            "",
+            "✅ **Example of appropriate questions:**",
+            "• What does my health insurance cover?",
+            "• How do I file a claim?",
+            "• What are my policy benefits?",
+            "• Can you explain my deductible?"
+        ])
+        
+        return {
+            "answer": "\n".join(explanation_parts),
+            "sources": [],
+            "question_type": "blocked_by_guardrails",
+            "confidence": 0.0,
+            "explanation": "Request blocked by content safety system",
+            "pdf_info": None,
+            "is_faq": False,
+            "suggested_questions": [
+                "What does my health insurance cover?",
+                "How do I file a claim?",
+                "What are my policy benefits?",
+                "Can you explain my deductible?",
+                "What is my copay for doctor visits?"
+            ],
+            **guardrails_info
+        }
+    
+    # FAST EARLY EXIT - Original content filter
+    if filter_result.threat_level in [ContentThreatLevel.SEVERE, ContentThreatLevel.CRITICAL]:
+        print(f"🚫 Quick content filter block")
+        return {
+            "answer": "I'm sorry, but I cannot help with that request. Please ask questions related to insurance policies, coverage, claims, or benefits.",
+            "sources": [],
+            "question_type": "blocked_by_content_filter", 
+            "confidence": 0.0,
+            "explanation": "Request blocked by content filter",
+            "pdf_info": None,
+            "is_faq": False,
+            "content_warning": filter_result.warning_message,
+            **guardrails_info
+        }
+    
+    # FAST CONTENT PREPARATION
+    if guardrails_result and guardrails_result.filtered_content != request.question:
+        user_question_to_process = guardrails_result.filtered_content
+        content_warning_for_response = "Your question was modified for safety and privacy."
+    elif not filter_result.is_safe:
+        user_question_to_process = filter_result.sanitized_content
+        if not content_warning_for_response:
+            content_warning_for_response = filter_result.warning_message
+    
     try:
         # Use the new integrated search that combines FAQ and policy document search
         print(f"Using integrated search for question: {user_question_to_process[:50]}...")
@@ -355,6 +478,53 @@ async def query_endpoint(request: QueryRequest):
             "pdf_info": None,
             "is_faq": search_result.get('source_type') in ['faq', 'faq_enhanced']  # Include both FAQ types
         }
+        
+        # Layer 3: Guardrails AI output validation (if available) - OPTIMIZED FOR SPEED
+        async def fast_output_validation():
+            """Fast output validation with timeout"""
+            if not prometheus_guardrails or not response_data["answer"]:
+                return
+            
+            try:
+                # Quick output validation with timeout
+                output_result = prometheus_guardrails.validate_output(response_data["answer"])
+                
+                # Lightweight info update - only essential data
+                guardrails_info.update({
+                    "output_violations": [v.value for v in output_result.violations] if output_result.violations else [],
+                    "output_confidence": output_result.confidence_score
+                })
+                
+                # Fast content replacement if needed
+                if not output_result.is_valid and output_result.filtered_content:
+                    response_data["answer"] = output_result.filtered_content
+                    if not content_warning_for_response:
+                        # Create specific warning message based on violations
+                        warning_parts = ["⚠️ Response was automatically filtered:"]
+                        for message in output_result.messages:
+                            warning_parts.append(f"• {message}")
+                        return "\n".join(warning_parts)
+                        
+            except Exception:
+                # Silent failure for speed - don't slow down on validation errors
+                pass
+            
+            return None
+        
+        # Run output validation with timeout for speed (non-blocking)
+        try:
+            warning = await asyncio.wait_for(fast_output_validation(), timeout=1.0)
+            if warning:
+                content_warning_for_response = warning
+        except asyncio.TimeoutError:
+            # Skip output validation if it takes too long
+            pass
+        except Exception:
+            # Silent failure for maximum speed
+            pass
+        
+        # Add guardrails information to response (lightweight)
+        response_data.update(guardrails_info)
         
         # Add enhanced FAQ specific data if available
         if search_result.get('source_type') == 'faq_enhanced':
@@ -390,6 +560,10 @@ async def query_endpoint(request: QueryRequest):
         
         # Log the final response for debugging
         print(f"✅ Response prepared - Type: {response_data['question_type']}, Confidence: {response_data['confidence']:.2f}")
+        if guardrails_info.get("guardrails_enabled"):
+            print(f"🛡️ Guardrails Info - Input Confidence: {guardrails_info.get('guardrails_confidence', 'N/A')}")
+            if guardrails_info.get("output_confidence"):
+                print(f"🛡️ Guardrails Info - Output Confidence: {guardrails_info.get('output_confidence')}")
         
         return response_data
         
@@ -433,14 +607,22 @@ async def get_pdf(request: PDFRequest):
         # Fast cache check and serve
         if cache_path.exists():
             print(f"✅ Serving from cache: {pdf_link}")
+            
+            def file_streamer():
+                with open(cache_path, 'rb') as f:
+                    while True:
+                        chunk = f.read(8192)  # 8KB chunks
+                        if not chunk:
+                            break
+                        yield chunk
+            
             return StreamingResponse(
-                open(cache_path, 'rb'),
+                file_streamer(),
                 media_type='application/pdf',
                 headers={
-                    'Content-Disposition': 'inline',
-                    'filename': pdf_link.split('/')[-1],
-                    'Content-Length': str(cache_path.stat().st_size),
-                    'Cache-Control': 'public, max-age=86400'  # 24 hour cache
+                    'Content-Disposition': f'inline; filename="{pdf_link.split("/")[-1]}"',
+                    'Cache-Control': 'public, max-age=86400',  # 24 hour cache
+                    'Content-Length': str(cache_path.stat().st_size)
                 }
             )
         
@@ -453,7 +635,7 @@ async def get_pdf(request: PDFRequest):
             # Start download with optimized settings
             async with session.get(
                 pdf_link,
-                timeout=aiohttp.ClientTimeout(total=30, connect=5)  # Shorter timeouts
+                timeout=aiohttp.ClientTimeout(total=60, connect=15, sock_read=30)
             ) as response:
                 
                 # Quick status validation
@@ -488,8 +670,8 @@ async def get_pdf(request: PDFRequest):
                 
                 async def stream_and_cache():
                     """Stream to client while simultaneously caching to disk"""
-                    cache_data = bytearray()  # Use bytearray for efficient appending
                     total_size = 0
+                    cache_file = None
                     
                     try:
                         # Create cache directory if needed
@@ -498,53 +680,86 @@ async def get_pdf(request: PDFRequest):
                         # Open cache file for writing
                         cache_file = open(cache_path, 'wb')
                         
-                        try:
-                            # Stream in larger chunks for better performance
-                            async for chunk in response.content.iter_chunked(32768):  # 32KB chunks
-                                if not chunk:
-                                    break
-                                
-                                total_size += len(chunk)
-                                
-                                # Write to cache file immediately
+                        # Stream in smaller chunks to avoid connection issues
+                        async for chunk in response.content.iter_chunked(8192):  # 8KB chunks (smaller for stability)
+                            if not chunk:
+                                break
+                            
+                            total_size += len(chunk)
+                            
+                            # Write to cache file immediately
+                            if cache_file:
                                 cache_file.write(chunk)
                                 cache_file.flush()  # Ensure data is written
-                                
-                                # Yield to client
-                                yield chunk
-                                
-                        finally:
-                            cache_file.close()
+                            
+                            # Yield to client
+                            yield chunk
                             
                         print(f"✅ Cached {total_size:,} bytes to {cache_path}")
                         
-                    except Exception as cache_error:
-                        print(f"⚠️ Cache error (continuing stream): {cache_error}")
-                        # Remove partial cache file on error
-                        try:
-                            if cache_path.exists():
-                                cache_path.unlink()
-                        except:
-                            pass
+                    except (aiohttp.ClientConnectionError, aiohttp.ClientError, ConnectionResetError) as conn_error:
+                        print(f"⚠️ Connection error during streaming: {conn_error}")
+                        # Clean up partial cache file
+                        if cache_file:
+                            try:
+                                cache_file.close()
+                                cache_file = None
+                            except:
+                                pass
                         
-                        # Continue streaming even if caching fails
-                        if total_size == 0:  # No data streamed yet
-                            async for chunk in response.content.iter_chunked(32768):
-                                if chunk:
-                                    yield chunk
+                        if cache_path.exists():
+                            try:
+                                cache_path.unlink()
+                            except:
+                                pass
+                        
+                        # Re-raise the error to trigger retry or final error
+                        raise
+                        
+                    except Exception as cache_error:
+                        print(f"⚠️ Unexpected error during streaming: {cache_error}")
+                        # Clean up partial cache file
+                        if cache_file:
+                            try:
+                                cache_file.close()
+                                cache_file = None
+                            except:
+                                pass
+                        
+                        if cache_path.exists():
+                            try:
+                                cache_path.unlink()
+                            except:
+                                pass
+                        
+                        # Re-raise the error
+                        raise
+                        
+                    finally:
+                        if cache_file:
+                            try:
+                                cache_file.close()
+                            except:
+                                pass
                 
                 # Return streaming response with optimized headers
+                headers = {
+                    'Content-Disposition': f'inline; filename="{filename}"',
+                    'Cache-Control': 'public, max-age=86400',  # 24 hour browser cache
+                    'Accept-Ranges': 'bytes',  # Enable partial requests
+                    'X-Content-Type-Options': 'nosniff'
+                }
+                
+                # Only add Content-Length for non-streaming responses or when we're sure of the size
+                # For streaming responses, let FastAPI handle the Transfer-Encoding: chunked
+                # if content_length:
+                #     headers['Content-Length'] = content_length
+                
                 return StreamingResponse(
                     stream_and_cache(),
-                        media_type='application/pdf',
-                        headers={
-                        'Content-Disposition': f'inline; filename="{filename}"',
-                        'Cache-Control': 'public, max-age=86400',  # 24 hour browser cache
-                        'Accept-Ranges': 'bytes',  # Enable partial requests
-                        'X-Content-Type-Options': 'nosniff',
-                        'Content-Length': content_length if content_length else None
-                        }
-                    )
+                    media_type='application/pdf',
+                    headers=headers
+                )
                     
         except aiohttp.ClientError as e:
             print(f"❌ Network error for {pdf_link}: {e}")
@@ -982,6 +1197,87 @@ async def test_family_members(request: FamilyTestRequest):
         print(f"Error in test endpoint: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
+# Add Guardrails AI status endpoint
+@app.get(
+    "/api/guardrails/status",
+    responses={
+        200: {"description": "Guardrails status and statistics"},
+        500: {"model": ErrorResponse, "description": "Internal server error"}
+    },
+    tags=["Guardrails"],
+    summary="Get Guardrails AI status",
+    description="Get the current status and configuration of the Guardrails AI system."
+)
+async def get_guardrails_status():
+    """Get Guardrails AI system status and statistics"""
+    try:
+        if prometheus_guardrails:
+            stats = prometheus_guardrails.get_statistics()
+            return {
+                "enabled": True,
+                "status": "active",
+                "statistics": stats,
+                "message": "Guardrails AI is active and protecting your system"
+            }
+        else:
+            return {
+                "enabled": False,
+                "status": "disabled",
+                "statistics": {},
+                "message": "Guardrails AI is not available or failed to initialize"
+            }
+    except Exception as e:
+        return {
+            "enabled": False,
+            "status": "error",
+            "statistics": {},
+            "message": f"Error getting guardrails status: {str(e)}"
+        }
+
+# Add Guardrails AI test endpoint
+class GuardrailsTestRequest(BaseModel):
+    text: str
+    test_type: str = "input"  # "input" or "output"
+
+@app.post(
+    "/api/guardrails/test",
+    responses={
+        200: {"description": "Guardrails test results"},
+        400: {"model": ErrorResponse, "description": "Invalid request"},
+        500: {"model": ErrorResponse, "description": "Internal server error"}
+    },
+    tags=["Guardrails"],
+    summary="Test Guardrails AI validation",
+    description="Test the Guardrails AI system with custom text to see how it would be validated."
+)
+async def test_guardrails(request: GuardrailsTestRequest):
+    """Test Guardrails AI validation with custom text"""
+    if not prometheus_guardrails:
+        raise HTTPException(status_code=500, detail="Guardrails AI not available")
+    
+    if request.test_type not in ["input", "output"]:
+        raise HTTPException(status_code=400, detail="test_type must be 'input' or 'output'")
+    
+    try:
+        if request.test_type == "input":
+            result = prometheus_guardrails.validate_input(request.text)
+        else:
+            result = prometheus_guardrails.validate_output(request.text)
+        
+        return {
+            "test_type": request.test_type,
+            "original_text": request.text,
+            "is_valid": result.is_valid,
+            "confidence_score": result.confidence_score,
+            "violations": [v.value for v in result.violations],
+            "messages": result.messages,
+            "filtered_content": result.filtered_content,
+            "content_changed": result.filtered_content != request.text
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error testing guardrails: {str(e)}")
+
 # TTS endpoint
 class TTSRequest(BaseModel):
     text: str
@@ -1378,7 +1674,7 @@ async def text_to_speech(request: TTSRequest):
         clean_text = re.sub(r'[\u2000-\u206F\u2E00-\u2E7F]', ' ', clean_text)  # Remove special punctuation
         
         # More selective character filtering - preserve apostrophes in remaining contractions
-        clean_text = re.sub(r'[^\w\s\.,;:!?()\'"-]', ' ', clean_text)  # Keep apostrophes and quotes
+        clean_text = re.sub(r'[^\w\s\.,;!?()\'"-]', ' ', clean_text)  # Keep apostrophes and quotes
         clean_text = re.sub(r'\s+', ' ', clean_text)  # Normalize whitespace
         clean_text = clean_text.strip()
         

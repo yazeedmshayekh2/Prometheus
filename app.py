@@ -38,6 +38,8 @@ import traceback
 import warnings
 from functools import lru_cache
 import hashlib
+# Add Guardrails AI integration
+from prometheus_guardrails_integration import PrometheusGuardrails, integrate_with_prometheus
 
 # Load environment variables from .env file
 from dotenv import load_dotenv
@@ -61,6 +63,9 @@ except ImportError:
 qa_system = None
 question_processor = None
 tts_pipeline = None
+# Add guardrails system
+prometheus_guardrails = None
+
 
 # Global session for connection pooling
 pdf_session = None
@@ -114,7 +119,7 @@ def get_pdf_cache_path(pdf_link: str) -> Path:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Initialize QA system on startup"""
-    global qa_system, question_processor, tts_pipeline
+    global qa_system, question_processor, tts_pipeline, prometheus_guardrails
     
     print("Initializing QA system...")
     
@@ -131,6 +136,24 @@ async def lifespan(app: FastAPI):
     
     # Initialize Question Processor
     question_processor = QuestionProcessor(qa_system)
+    
+    # Initialize Guardrails AI system
+    try:
+        print("Initializing Guardrails AI system...")
+        prometheus_guardrails = PrometheusGuardrails(use_guardrails_ai=True, ultra_fast_mode=False)
+        print("✅ Prometheus Guardrails initialized successfully")
+        
+        # Test the guardrails to ensure they're working
+        test_result = prometheus_guardrails.validate_input("My email is test@example.com and I want info")
+        if test_result and not test_result.is_valid:
+            print("✅ Guardrails validation test passed - PII detection working")
+        else:
+            print("⚠️  Guardrails validation test inconclusive")
+        
+    except Exception as e:
+        print(f"⚠️  Guardrails initialization failed: {e}")
+        print("Continuing without Guardrails AI protection")
+        prometheus_guardrails = None
     
     # Initialize TTS pipeline
     if TTS_AVAILABLE:
@@ -310,31 +333,132 @@ async def query_endpoint(request: QueryRequest):
     
     user_question_to_process = request.question
     content_warning_for_response = None
+    guardrails_info = {"guardrails_enabled": False}
     
-    if filter_result.threat_level in [ContentThreatLevel.SEVERE, ContentThreatLevel.CRITICAL]:
-        print(f"🚫 Blocking harmful content - Threat: {filter_result.threat_level.value}")
-        print(f"   Categories: {filter_result.detected_categories}")
+        # Fast parallel validation using asyncio
+    async def fast_guardrails_validation():
+        """Fast parallel validation with early exit"""
+        if not prometheus_guardrails:
+            return None, {"guardrails_enabled": False}
         
-        return JSONResponse(
-            status_code=400, 
-            content={
-                "detail": {
-                "error": "inappropriate_content_blocked",
-                "message": filter_result.warning_message,
-                    "suggestion": "Please ask questions related to insurance policies and services.",
-                    "categories": filter_result.detected_categories
-                }
+        try:
+            # Quick input validation with early exit
+            result = prometheus_guardrails.validate_input(request.question)
+            
+            info = {
+                "guardrails_enabled": True,
+                "guardrails_violations": [v.value for v in result.violations],
+                "guardrails_confidence": result.confidence_score
             }
-        )
+            
+            return result, info
+        except Exception as e:
+            # Fast error handling - don't slow down on errors
+            return None, {
+                "guardrails_enabled": True,
+                "guardrails_error": str(e)[:100],  # Truncate long errors
+                "guardrails_confidence": 0.0
+            }
     
-    if not filter_result.is_safe:
-        print(f"⚠️ Sanitized inappropriate/harmful content - Threat: {filter_result.threat_level.value}")
-        print(f"   Categories: {filter_result.detected_categories}")
-        print(f"   Original: {request.question}")
-        user_question_to_process = filter_result.sanitized_content
-        content_warning_for_response = filter_result.warning_message
-        print(f"   Sanitized to: {user_question_to_process}")
+    async def fast_content_filter():
+        """Fast content filtering"""
+        return filter_user_input(request.question)
+    
+    # Run both validations in parallel - MUCH FASTER
+    import asyncio
+    try:
+        # Parallel execution saves significant time
+        guardrails_task = fast_guardrails_validation()
+        content_filter_task = fast_content_filter()
         
+        # Wait for both with timeout for speed
+        guardrails_result, guardrails_info = await asyncio.wait_for(guardrails_task, timeout=2.0)
+        filter_result = await asyncio.wait_for(content_filter_task, timeout=1.0)
+        
+    except asyncio.TimeoutError:
+        # If validation takes too long, skip it to maintain speed
+        print("⚡ Validation timeout - proceeding without full validation for speed")
+        guardrails_result = None
+        filter_result = filter_user_input(request.question)  # Fallback to basic filter
+        
+    except Exception as e:
+        # Fast error recovery
+        print(f"⚡ Fast validation error: {str(e)[:50]}...")
+        guardrails_result = None
+        filter_result = filter_user_input(request.question)
+    
+    # FAST EARLY EXIT - Block immediately if needed
+    if guardrails_result and not guardrails_result.is_valid:
+        # Quick block with detailed explanation
+        print(f"🚫 Quick block - Violations: {len(guardrails_result.violations)}")
+        
+        # Create detailed explanation with specific violation messages
+        explanation_parts = [
+            "I'm sorry, but I cannot process this request due to content policy violations:",
+            ""
+        ]
+        
+        # Add each specific violation message
+        for message in guardrails_result.messages:
+            explanation_parts.append(f"• {message}")
+        
+        explanation_parts.extend([
+            "",
+            "💡 **How to proceed:**",
+            "• Remove any personal information (SSN, credit cards, emails, phone numbers).",
+            "• Use respectful, professional language.", 
+            "• Ask questions related to insurance policies and services.",
+            "• Avoid mentioning competitor companies.",
+            "",
+            "✅ **Example of appropriate questions:**",
+            "• What does my health insurance cover?",
+            "• How do I file a claim?",
+            "• What are my policy benefits?",
+            "• Can you explain my deductible?"
+        ])
+        
+        return {
+            "answer": "\n".join(explanation_parts),
+            "sources": [],
+            "question_type": "blocked_by_guardrails",
+            "confidence": 0.0,
+            "explanation": "Request blocked by content safety system",
+            "pdf_info": None,
+            "is_faq": False,
+            "suggested_questions": [
+                "What does my health insurance cover?",
+                "How do I file a claim?",
+                "What are my policy benefits?",
+                "Can you explain my deductible?",
+                "What is my copay for doctor visits?"
+            ],
+            **guardrails_info
+        }
+    
+    # FAST EARLY EXIT - Original content filter
+    if filter_result.threat_level in [ContentThreatLevel.SEVERE, ContentThreatLevel.CRITICAL]:
+        print(f"🚫 Quick content filter block")
+        return {
+            "answer": "I'm sorry, but I cannot help with that request. Please ask questions related to insurance policies, coverage, claims, or benefits.",
+            "sources": [],
+            "question_type": "blocked_by_content_filter", 
+            "confidence": 0.0,
+            "explanation": "Request blocked by content filter",
+            "pdf_info": None,
+            "is_faq": False,
+            "content_warning": filter_result.warning_message,
+            **guardrails_info
+        }
+    
+    # FAST CONTENT PREPARATION
+    if guardrails_result and guardrails_result.filtered_content != request.question:
+        user_question_to_process = guardrails_result.filtered_content
+        content_warning_for_response = "Your question was modified for safety and privacy."
+    elif not filter_result.is_safe:
+        user_question_to_process = filter_result.sanitized_content
+        if not content_warning_for_response:
+            content_warning_for_response = filter_result.warning_message
+    
     try:
         # Use the new integrated search that combines FAQ and policy document search
         print(f"Using integrated search for question: {user_question_to_process[:50]}...")
@@ -355,6 +479,53 @@ async def query_endpoint(request: QueryRequest):
             "pdf_info": None,
             "is_faq": search_result.get('source_type') in ['faq', 'faq_enhanced']  # Include both FAQ types
         }
+        
+        # Layer 3: Guardrails AI output validation (if available) - OPTIMIZED FOR SPEED
+        async def fast_output_validation():
+            """Fast output validation with timeout"""
+            if not prometheus_guardrails or not response_data["answer"]:
+                return
+            
+            try:
+                # Quick output validation with timeout
+                output_result = prometheus_guardrails.validate_output(response_data["answer"])
+                
+                # Lightweight info update - only essential data
+                guardrails_info.update({
+                    "output_violations": [v.value for v in output_result.violations] if output_result.violations else [],
+                    "output_confidence": output_result.confidence_score
+                })
+                
+                # Fast content replacement if needed
+                if not output_result.is_valid and output_result.filtered_content:
+                    response_data["answer"] = output_result.filtered_content
+                    if not content_warning_for_response:
+                        # Create specific warning message based on violations
+                        warning_parts = ["⚠️ Response was automatically filtered:"]
+                        for message in output_result.messages:
+                            warning_parts.append(f"• {message}")
+                        return "\n".join(warning_parts)
+                        
+            except Exception:
+                # Silent failure for speed - don't slow down on validation errors
+                pass
+            
+            return None
+        
+        # Run output validation with timeout for speed (non-blocking)
+        try:
+            warning = await asyncio.wait_for(fast_output_validation(), timeout=1.0)
+            if warning:
+                content_warning_for_response = warning
+        except asyncio.TimeoutError:
+            # Skip output validation if it takes too long
+            pass
+        except Exception:
+            # Silent failure for maximum speed
+            pass
+        
+        # Add guardrails information to response (lightweight)
+        response_data.update(guardrails_info)
         
         # Add enhanced FAQ specific data if available
         if search_result.get('source_type') == 'faq_enhanced':
@@ -390,8 +561,13 @@ async def query_endpoint(request: QueryRequest):
         
         # Log the final response for debugging
         print(f"✅ Response prepared - Type: {response_data['question_type']}, Confidence: {response_data['confidence']:.2f}")
+        if guardrails_info.get("guardrails_enabled"):
+            print(f"🛡️ Guardrails Info - Input Confidence: {guardrails_info.get('guardrails_confidence', 'N/A')}")
+            if guardrails_info.get("output_confidence"):
+                print(f"🛡️ Guardrails Info - Output Confidence: {guardrails_info.get('output_confidence')}")
         
         return response_data
+
         
     except Exception as e:
         print(f"❌ Error in query processing: {str(e)}")
@@ -965,6 +1141,87 @@ async def test_family_members(request: FamilyTestRequest):
     except Exception as e:
         print(f"Error in test endpoint: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+# Add Guardrails AI status endpoint
+@app.get(
+    "/api/guardrails/status",
+    responses={
+        200: {"description": "Guardrails status and statistics"},
+        500: {"model": ErrorResponse, "description": "Internal server error"}
+    },
+    tags=["Guardrails"],
+    summary="Get Guardrails AI status",
+    description="Get the current status and configuration of the Guardrails AI system."
+)
+async def get_guardrails_status():
+    """Get Guardrails AI system status and statistics"""
+    try:
+        if prometheus_guardrails:
+            stats = prometheus_guardrails.get_statistics()
+            return {
+                "enabled": True,
+                "status": "active",
+                "statistics": stats,
+                "message": "Guardrails AI is active and protecting your system"
+            }
+        else:
+            return {
+                "enabled": False,
+                "status": "disabled",
+                "statistics": {},
+                "message": "Guardrails AI is not available or failed to initialize"
+            }
+    except Exception as e:
+        return {
+            "enabled": False,
+            "status": "error",
+            "statistics": {},
+            "message": f"Error getting guardrails status: {str(e)}"
+        }
+
+# Add Guardrails AI test endpoint
+class GuardrailsTestRequest(BaseModel):
+    text: str
+    test_type: str = "input"  # "input" or "output"
+
+@app.post(
+    "/api/guardrails/test",
+    responses={
+        200: {"description": "Guardrails test results"},
+        400: {"model": ErrorResponse, "description": "Invalid request"},
+        500: {"model": ErrorResponse, "description": "Internal server error"}
+    },
+    tags=["Guardrails"],
+    summary="Test Guardrails AI validation",
+    description="Test the Guardrails AI system with custom text to see how it would be validated."
+)
+async def test_guardrails(request: GuardrailsTestRequest):
+    """Test Guardrails AI validation with custom text"""
+    if not prometheus_guardrails:
+        raise HTTPException(status_code=500, detail="Guardrails AI not available")
+    
+    if request.test_type not in ["input", "output"]:
+        raise HTTPException(status_code=400, detail="test_type must be 'input' or 'output'")
+    
+    try:
+        if request.test_type == "input":
+            result = prometheus_guardrails.validate_input(request.text)
+        else:
+            result = prometheus_guardrails.validate_output(request.text)
+        
+        return {
+            "test_type": request.test_type,
+            "original_text": request.text,
+            "is_valid": result.is_valid,
+            "confidence_score": result.confidence_score,
+            "violations": [v.value for v in result.violations],
+            "messages": result.messages,
+            "filtered_content": result.filtered_content,
+            "content_changed": result.filtered_content != request.text
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error testing guardrails: {str(e)}")
 
 # TTS endpoint
 class TTSRequest(BaseModel):

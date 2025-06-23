@@ -1036,7 +1036,8 @@ strong{
 }
 
 .logout-btn {
-    width: 100%;
+    width: 90%;
+    margin: 10px;
     padding: 8px;
     background: #212529;
     color: white;

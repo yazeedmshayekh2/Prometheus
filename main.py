@@ -1091,7 +1091,8 @@ class DocumentQASystem:
         """Get a no-information response in the appropriate language"""
         if language == 'ar':
             return "عذراً، يمكنني فقط الإجابة على الأسئلة المتعلقة بوثيقة التأمين الخاصة بك."
-        return "I'm sorry, I can only answer questions about the policy."
+        else:
+            return "I'm sorry, I can only answer questions about the policy."
     
     def _get_error_response(self, language: str) -> str:
         """Get language-specific error response"""
@@ -3984,7 +3985,7 @@ POLICY INFORMATION:
 Question: {question}
 
 INSTRUCTIONS:
-- If the question is not related to the policy, say "I'm sorry, I can only answer questions about the policy."
+- If the question is not related to the policy, but please be very careful, don't answer it for all the questions, and if you are sure, then say "I'm sorry, I can only answer questions about the policy."
 - Start with a direct answer to the user's question in the first sentence
 - Use simple, everyday language that anyone can understand
 - Focus on what IS covered and what the user CAN do
@@ -4004,6 +4005,7 @@ FORMATTING:
 - Keep related information together
 - Avoid repeating the same amount or percentage multiple times
 - Group similar information into single bullet points
+- Please end the bullet points with a period (.)
 
 EXAMPLE OF GOOD FORMATTING:
 Dental treatment is covered under your policy.
@@ -4962,5 +4964,3 @@ GENERATE RESPONSE:"""
             }
         }
         return templates.get(language, templates['en'])
-
-

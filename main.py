@@ -2112,20 +2112,11 @@ Please give a short succinct context to situate this chunk within the overall do
                     if not pdf_link:
                         continue
                     
-                    # Check if document already processed by checking for existing collection
-                    pdf_filename = pdf_link.split('/')[-1]
-                    collection_name = self._generate_collection_name(pdf_filename)
-                    
-                    try:
-                        # Check if collection exists and has content
-                        collection_info = self.qdrant_client.get_collection(collection_name)
-                        if collection_info.points_count > 0:
-                            print(f"Document {pdf_filename} already processed, skipping...")
-                            self.document_collections[pdf_filename] = collection_name
-                            continue
-                    except Exception:
-                        # Collection doesn't exist, needs processing
-                        pass
+                    # Check if document already processed using the robust checking method
+                    if self.is_document_indexed(pdf_link):
+                        pdf_filename = pdf_link.split('/')[-1]
+                        print(f"Document {pdf_filename} already processed, skipping...")
+                        continue
                     
                     # Add to processing list if not already processed
                     new_pdfs_to_process.append((pdf_link, policy.get('company_name', '')))
@@ -2146,6 +2137,65 @@ Please give a short succinct context to situate this chunk within the overall do
                 "dependents": [],
                 "total_policies": 0
             }
+
+    def is_document_indexed(self, pdf_link: str) -> bool:
+        """
+        Check if a document is already indexed in the vector store
+        Returns: True if document is indexed, False otherwise
+        """
+        try:
+            pdf_filename = pdf_link.split('/')[-1]
+            
+            # Generate collection names to check (both old and new naming schemes)
+            collection_names_to_check = []
+            
+            # New naming scheme (cleaned)
+            collection_names_to_check.append(self._generate_collection_name(pdf_filename))
+            
+            # Old naming scheme (with spaces and special chars)
+            old_style_name = f"doc_{pdf_filename.replace('.pdf', '').replace('.PDF', '')}"
+            collection_names_to_check.append(old_style_name)
+            
+            # Check each potential collection name
+            for collection_name in collection_names_to_check:
+                try:
+                    # Check if collection exists in Qdrant
+                    collection_info = self.qdrant_client.get_collection(collection_name)
+                    # Check if collection has any points (documents)
+                    if collection_info.points_count > 0:
+                        print(f"Found existing collection with content: {collection_name} ({collection_info.points_count} points)")
+                        # Update the mapping to use this collection
+                        self.document_collections[pdf_filename] = collection_name
+                        return True
+                except Exception:
+                    continue
+            
+            # Also check with the vector store client if available
+            if hasattr(self, 'vector_store') and self.vector_store:
+                for collection_name in collection_names_to_check:
+                    try:
+                        collection_info = self.vector_store.client.get_collection(collection_name)
+                        if collection_info.points_count > 0:
+                            print(f"Found existing collection via vector_store: {collection_name} ({collection_info.points_count} points)")
+                            self.document_collections[pdf_filename] = collection_name
+                            return True
+                    except Exception:
+                        continue
+            
+            # Final fallback: Check if collection name exists in our available collections
+            if hasattr(self, 'available_collections'):
+                for collection_name in collection_names_to_check:
+                    if collection_name in self.available_collections:
+                        print(f"Found collection in available_collections: {collection_name}")
+                        return True
+            
+            print(f"No existing collection found for {pdf_filename}")
+            print(f"Checked collection names: {collection_names_to_check}")
+            return False
+            
+        except Exception as e:
+            print(f"Error checking if document is indexed: {e}")
+            return False
 
     def _process_new_pdfs(self, new_pdfs_to_process: List[Tuple[str, str]]):
         """Process new PDFs and update the system"""

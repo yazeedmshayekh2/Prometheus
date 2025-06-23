@@ -431,16 +431,26 @@ async def get_pdf(request: PDFRequest):
         cache_path = get_pdf_cache_path(pdf_link)
         
         # Fast cache check and serve
-        if cache_path.exists():
+        if validate_cache_file(cache_path):
             print(f"✅ Serving from cache: {pdf_link}")
+            file_size = cache_path.stat().st_size
+            
+            def file_generator():
+                with open(cache_path, 'rb') as f:
+                    while True:
+                        chunk = f.read(8192)  # 8KB chunks
+                        if not chunk:
+                            break
+                        yield chunk
+            
             return StreamingResponse(
-                open(cache_path, 'rb'),
+                file_generator(),
                 media_type='application/pdf',
                 headers={
                     'Content-Disposition': 'inline',
-                    'filename': pdf_link.split('/')[-1],
-                    'Content-Length': str(cache_path.stat().st_size),
-                    'Cache-Control': 'public, max-age=86400'  # 24 hour cache
+                    'Content-Length': str(file_size),
+                    'Cache-Control': 'public, max-age=86400',  # 24 hour cache
+                    'Accept-Ranges': 'bytes'
                 }
             )
         
@@ -453,7 +463,7 @@ async def get_pdf(request: PDFRequest):
             # Start download with optimized settings
             async with session.get(
                 pdf_link,
-                timeout=aiohttp.ClientTimeout(total=30, connect=5)  # Shorter timeouts
+                timeout=aiohttp.ClientTimeout(total=60, connect=10)  # Increased timeout
             ) as response:
                 
                 # Quick status validation
@@ -470,81 +480,55 @@ async def get_pdf(request: PDFRequest):
                 # Quick content type check
                 content_type = response.headers.get('content-type', '').lower()
                 if 'pdf' not in content_type and 'application/octet-stream' not in content_type:
-                        raise HTTPException(
-                            status_code=400,
+                    raise HTTPException(
+                        status_code=400,
                         detail="Invalid content type - not a PDF document"
-                        )
+                    )
                         
                 # Size check for very large files
                 content_length = response.headers.get('content-length')
                 if content_length and int(content_length) > 100 * 1024 * 1024:  # 100MB limit
-                        raise HTTPException(
+                    raise HTTPException(
                         status_code=413, 
                         detail="PDF file too large (max 100MB)"
                     )
                 
-                # Optimized streaming with concurrent caching
+                # Download the entire file first, then serve it
+                print(f"📥 Downloading PDF content...")
+                pdf_data = bytearray()
+                
+                async for chunk in response.content.iter_chunked(32768):  # 32KB chunks
+                    if chunk:
+                        pdf_data.extend(chunk)
+                
+                # Save to cache
+                try:
+                    cache_path.parent.mkdir(exist_ok=True)
+                    with open(cache_path, 'wb') as f:
+                        f.write(pdf_data)
+                    print(f"✅ Cached {len(pdf_data):,} bytes to {cache_path}")
+                except Exception as cache_error:
+                    print(f"⚠️ Cache error: {cache_error}")
+                
+                # Create generator for the downloaded data
+                def data_generator():
+                    chunk_size = 8192
+                    for i in range(0, len(pdf_data), chunk_size):
+                        yield bytes(pdf_data[i:i + chunk_size])
+                
+                # Return streaming response with correct content length
                 filename = pdf_link.split('/')[-1]
-                
-                async def stream_and_cache():
-                    """Stream to client while simultaneously caching to disk"""
-                    cache_data = bytearray()  # Use bytearray for efficient appending
-                    total_size = 0
-                    
-                    try:
-                        # Create cache directory if needed
-                        cache_path.parent.mkdir(exist_ok=True)
-                        
-                        # Open cache file for writing
-                        cache_file = open(cache_path, 'wb')
-                        
-                        try:
-                            # Stream in larger chunks for better performance
-                            async for chunk in response.content.iter_chunked(32768):  # 32KB chunks
-                                if not chunk:
-                                    break
-                                
-                                total_size += len(chunk)
-                                
-                                # Write to cache file immediately
-                                cache_file.write(chunk)
-                                cache_file.flush()  # Ensure data is written
-                                
-                                # Yield to client
-                                yield chunk
-                                
-                        finally:
-                            cache_file.close()
-                            
-                        print(f"✅ Cached {total_size:,} bytes to {cache_path}")
-                        
-                    except Exception as cache_error:
-                        print(f"⚠️ Cache error (continuing stream): {cache_error}")
-                        # Remove partial cache file on error
-                        try:
-                            if cache_path.exists():
-                                cache_path.unlink()
-                        except:
-                            pass
-                        
-                        # Continue streaming even if caching fails
-                        if total_size == 0:  # No data streamed yet
-                            async for chunk in response.content.iter_chunked(32768):
-                                if chunk:
-                                    yield chunk
-                
-                # Return streaming response with optimized headers
                 return StreamingResponse(
-                    stream_and_cache(),
-                        media_type='application/pdf',
-                        headers={
+                    data_generator(),
+                    media_type='application/pdf',
+                    headers={
                         'Content-Disposition': f'inline; filename="{filename}"',
-                        'Cache-Control': 'public, max-age=86400',  # 24 hour browser cache
-                        'Accept-Ranges': 'bytes',  # Enable partial requests
-                        'X-Content-Type-Options': 'nosniff',
-                        'Content-Length': content_length if content_length else None
-                        }
-                    )
+                        'Content-Length': str(len(pdf_data)),  # Exact length
+                        'Cache-Control': 'public, max-age=86400',
+                        'Accept-Ranges': 'bytes',
+                        'X-Content-Type-Options': 'nosniff'
+                    }
+                )
                     
         except aiohttp.ClientError as e:
             print(f"❌ Network error for {pdf_link}: {e}")
@@ -557,7 +541,7 @@ async def get_pdf(request: PDFRequest):
             raise HTTPException(
                 status_code=504,
                 detail="Request timeout - PDF server is slow"
-                )
+            )
                 
     except HTTPException:
         raise
@@ -2306,6 +2290,63 @@ async def get_tts_voices():
         }
     }
     return voices
+
+# Add this alternative GET endpoint for PDF serving (fallback method)
+@app.get("/api/pdf/{encoded_link}")
+async def get_pdf_by_link(encoded_link: str):
+    """Alternative GET endpoint for PDF serving"""
+    try:
+        import base64
+        import urllib.parse
+        
+        # Decode the link
+        try:
+            pdf_link = base64.urlsafe_b64decode(encoded_link.encode()).decode()
+        except:
+            try:
+                pdf_link = urllib.parse.unquote(encoded_link)
+            except:
+                raise HTTPException(status_code=400, detail="Invalid PDF link encoding")
+        
+        # Use the same logic as POST endpoint
+        request = PDFRequest(pdf_link=pdf_link)
+        return await get_pdf(request)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"💥 Error in GET PDF endpoint: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+# Improve the cache file validation
+def validate_cache_file(cache_path: Path) -> bool:
+    """Validate that a cached PDF file is complete and not corrupted"""
+    try:
+        if not cache_path.exists():
+            return False
+        
+        # Check file size (should be > 1KB for a valid PDF)
+        if cache_path.stat().st_size < 1024:
+            print(f"⚠️ Cache file too small, removing: {cache_path}")
+            cache_path.unlink()
+            return False
+        
+        # Check PDF header
+        with open(cache_path, 'rb') as f:
+            header = f.read(4)
+            if not header.startswith(b'%PDF'):
+                print(f"⚠️ Invalid PDF header in cache, removing: {cache_path}")
+                cache_path.unlink()
+                return False
+        
+        return True
+    except Exception as e:
+        print(f"⚠️ Error validating cache file: {e}")
+        try:
+            cache_path.unlink()
+        except:
+            pass
+        return False
 
 if __name__ == "__main__":
     import uvicorn

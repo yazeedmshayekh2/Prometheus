@@ -1014,21 +1014,64 @@ class InsuranceAssistant {
                 const bootstrapModal = new bootstrap.Modal(modal);
             }
             
-            // Create a blob URL for the PDF
-            const response = await fetch('/api/pdf', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ pdf_link: pdfInfo.pdf_link })
-            });
+            // Create a blob URL for the PDF with retry logic
+            let response;
+            let pdfBlob;
+            let pdfUrl;
+            
+            try {
+                // First attempt: POST method
+                response = await fetch('/api/pdf', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ pdf_link: pdfInfo.pdf_link })
+                });
 
-            if (!response.ok) {
-                throw new Error(`Failed to fetch PDF: ${response.status}`);
+                if (!response.ok) {
+                    throw new Error(`POST method failed: ${response.status}`);
+                }
+
+                pdfBlob = await response.blob();
+                
+                // Validate blob size
+                if (pdfBlob.size < 1024) {
+                    throw new Error('PDF blob too small, likely corrupted');
+                }
+                
+                pdfUrl = URL.createObjectURL(pdfBlob);
+                
+            } catch (postError) {
+                console.warn('POST method failed, trying GET fallback:', postError);
+                
+                try {
+                    // Fallback: Try GET method with encoded link
+                    const encodedLink = btoa(pdfInfo.pdf_link);
+                    response = await fetch(`/api/pdf/${encodedLink}`, {
+                        method: 'GET'
+                    });
+
+                    if (!response.ok) {
+                        throw new Error(`GET method failed: ${response.status}`);
+                    }
+
+                    pdfBlob = await response.blob();
+                    
+                    // Validate blob size
+                    if (pdfBlob.size < 1024) {
+                        throw new Error('PDF blob too small, likely corrupted');
+                    }
+                    
+                    pdfUrl = URL.createObjectURL(pdfBlob);
+                    
+                } catch (getError) {
+                    console.warn('GET method also failed, trying direct link:', getError);
+                    
+                    // Last resort: Direct PDF link
+                    pdfUrl = pdfInfo.pdf_link;
+                }
             }
-
-            const pdfBlob = await response.blob();
-            const pdfUrl = URL.createObjectURL(pdfBlob);
 
             // Update iframe source and show it
             if (pdfFrame) {
@@ -1047,10 +1090,12 @@ class InsuranceAssistant {
                 pdfFrame.src = pdfUrl;
             }
 
-            // Clean up the blob URL after a delay to ensure it loads
-            setTimeout(() => {
-                URL.revokeObjectURL(pdfUrl);
-            }, 5000);
+            // Clean up the blob URL after a delay to ensure it loads (only if it's a blob URL)
+            if (pdfUrl && pdfUrl.startsWith('blob:')) {
+                setTimeout(() => {
+                    URL.revokeObjectURL(pdfUrl);
+                }, 10000); // Increased timeout for slower connections
+            }
 
         } catch (error) {
             console.error('Error displaying PDF:', error);
@@ -1616,7 +1661,7 @@ class InsuranceAssistant {
         container.className = 'family-cards-container';
 
         // Handle both array and object structures
-        const members = Array.isArray(this.familyData) 
+        const allMembers = Array.isArray(this.familyData) 
             ? this.familyData 
             : Object.entries(this.familyData).reduce((acc, [relation, members]) => {
                 if (Array.isArray(members)) {
@@ -1625,9 +1670,34 @@ class InsuranceAssistant {
                 return acc;
             }, []);
 
-        console.log('Processed members:', members);
+        console.log('Processed members:', allMembers);
 
-        members.forEach(member => {
+        // Sort members by relation priority: Principal first, then Spouse, then Children
+        const sortedMembers = allMembers.sort((a, b) => {
+            const getRelationPriority = (member) => {
+                const relation = (member.relation_order || '');
+                if (relation === 3) return 1;
+                if (relation === 1) return 2;
+                if (relation === 2) return 3;
+                return 4; // Any other relation types
+            };
+            
+            const priorityA = getRelationPriority(a);
+            const priorityB = getRelationPriority(b);
+            
+            // If same priority (e.g., multiple children), sort by name
+            if (priorityA === priorityB) {
+                const nameA = (a.name || '').toLowerCase();
+                const nameB = (b.name || '').toLowerCase();
+                return nameA.localeCompare(nameB);
+            }
+            
+            return priorityA - priorityB;
+        });
+
+        console.log('Sorted members:', sortedMembers);
+
+        sortedMembers.forEach(member => {
             const card = document.createElement('div');
             card.className = 'family-member-card';
             
@@ -1657,7 +1727,6 @@ class InsuranceAssistant {
                 { value: (member.id || member.individual_id || member.national_id || 'N/A') + ' - ' + member.contract_id || 'N/A' },
                 { label: 'C.I.D No.', value: member.national_id || 'N/A' },
                 { label: 'Relation', value: member.relation_order === 1 ? 'Spouse' : (member.relation_order === 2 ? 'Child' : 'Principal') },
-                { label: 'Staff No.', value: member.parent_id || 'N/A' },
                 { label: 'DOB', value: this.formatDate(member.date_of_birth) || 'N/A' },
                 { label: 'Coverage Period', value: this.formatDate(new Date()) + ' - ' + this.formatDate(member.end_date) || 'N/A' },
             ];
@@ -2170,7 +2239,7 @@ class InsuranceAssistant {
             this.chatContainer.innerHTML = '';
             const welcomeMessage = document.createElement('div');
             welcomeMessage.className = 'chat assistant';
-            welcomeMessage.innerHTML = 'Hi I\'m a chatbot that can help with your medical group policy; Please Enter Your Insured Qatari ID';
+            welcomeMessage.innerHTML = '👋 Hi I\'m a chatbot that can help with your medical group policy; Please Enter Your Insured Qatari ID';
             this.chatContainer.appendChild(welcomeMessage);
             
             // Add initial message to chat history
@@ -2251,9 +2320,6 @@ class InsuranceAssistant {
                     // Update national ID state
                     this.currentNationalId = conversation.userInfo.nationalId || '';
                     this.isNationalIdConfirmed = conversation.isNationalIdConfirmed || false;
-
-                    // Restore family data if available
-                    this.setupBeneficiaryCountClick();
 
                     // Update PDF if available
                     const memberWithPdf = conversation.pdfInfo.pdf_link;

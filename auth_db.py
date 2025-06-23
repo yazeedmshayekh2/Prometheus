@@ -265,6 +265,8 @@ class AuthDB:
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
             
+            print("check if the error is here", conversation_id, user_id)
+            
             # Get conversation
             cursor.execute(
                 'SELECT id, created_at, updated_at FROM conversations WHERE id = ? AND user_id = ?',
@@ -289,7 +291,26 @@ class AuthDB:
             )
             state = cursor.fetchone()
             
-            db = DatabaseConnection()
+            # Initialize default values
+            pdf_link = '-'
+            individual_name = '-'
+            national_id = ''
+            
+            # Only try to get family members if state exists and national_id is not empty
+            if state and state[3]:  # state[3] is national_id
+                try:
+                    db = DatabaseConnection()
+                    print("Getting family members for National ID:", state[3])
+                    family_members = db.get_family_members(state[3])
+                    
+                    if family_members is not None and not family_members.empty:
+                        pdf_link = family_members['PDFLink'].iloc[-1]
+                        individual_name = family_members['Name'].iloc[-1]
+                    
+                    national_id = state[3]
+                except Exception as e:
+                    print(f"Error getting family members: {e}")
+                    # Keep default values
             
             return {
                 'id': conversation[0],
@@ -297,15 +318,21 @@ class AuthDB:
                 'created_at': conversation[1],
                 'updated_at': conversation[2],
                 'pdfInfo': {
-                    'pdf_link': db.get_family_members(state[3])['PDFLink'].iloc[-1] if state[3] else '-'
+                    'pdf_link': pdf_link
                 },
                 'userInfo': {
                     'contractorName': state[0] if state else '-',
                     'expiryDate': state[1] if state else '-',
                     'beneficiaryCount': state[2] if state else '-',
-                    'nationalId': state[3] if state else '',
-                    'individualName': db.get_family_members(state[3])['Name'].iloc[-1] if state[3] else '-'
-                } if state else None,
+                    'nationalId': national_id,
+                    'individualName': individual_name
+                } if state else {
+                    'contractorName': '-',
+                    'expiryDate': '-',
+                    'beneficiaryCount': '-',
+                    'nationalId': '',
+                    'individualName': '-'
+                },
                 'suggestedQuestions': state[4] if state else '',
                 'isNationalIdConfirmed': bool(state[5]) if state else False
             }
